@@ -3,6 +3,11 @@ name = "pg_raw_parse"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+# Enables compile-time checks to verify that our enums are actually layout
+# identical to the C structures we're casting from. Requires a nightly compiler
+field_offset_assertions = []
+
 [dependencies]
 libc = "0.2.186"
 thiserror = "2.0.18"
@@ -14,7 +19,7 @@ glob = "0.3.3"
 
 [dev-dependencies]
 criterion = "0.8.2"
-pg_query = { versoin = "6.1.1", git = "https://github.com/pgdogdev/pg_query.rs.git" }
+pg_query = { version = "6.1.1", git = "https://github.com/pgdogdev/pg_query.rs.git" }
 
 [[bench]]
 name = "bench"

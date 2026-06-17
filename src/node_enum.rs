@@ -11,7 +11,7 @@ const _: () = {
     }
 };
 
-#[repr(C, u32)]
+#[repr(u32)]
 #[allow(non_camel_case_types)]
 pub enum Node<'a> {
     List(&'a raw::List) = raw::NodeTag_T_List,

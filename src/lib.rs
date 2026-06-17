@@ -1,4 +1,4 @@
-pub use crate::error::Error;
+#![cfg_attr(feature = "field_offset_assertions", feature(offset_of_enum))]
 use std::ffi;
 use std::ptr;
 
@@ -8,6 +8,9 @@ mod mem;
 pub mod node_enum;
 #[allow(warnings)]
 pub mod raw;
+
+pub use crate::error::Error;
+pub use crate::list::PgList;
 
 pub fn parse(sql: &str) -> Result<ParseResult, error::Error> {
     let mem = mem::MemoryContext::new(c"pg_raw_parse");
@@ -30,17 +33,32 @@ pub fn parse(sql: &str) -> Result<ParseResult, error::Error> {
     };
     match ptr::NonNull::new(c_result.error) {
         Some(e) => Err(Error::from_pg_query_error(e)),
-        None => Ok(ParseResult { tree, mem }),
+        None => Ok(ParseResult { tree, _mem: mem }),
     }
 }
 
 pub struct ParseResult {
     tree: TreeAndWarnings,
-    mem: mem::MemoryContext,
+    _mem: mem::MemoryContext,
+}
+
+impl ParseResult {
+    /// Returns the list of statements received, panics if the list was a
+    /// type other than Node
+    pub fn stmts(&self) -> &[*mut ffi::c_void] {
+        // SAFETY: The memory context of the tree is guaranteed to outlive
+        // the lifetime of self. We are returning a lifetime shorter than self.
+        let pg_list = unsafe { PgList::from_ptr(self.tree.tree) };
+        match pg_list.map(PgList::as_node_list) {
+            Some(Some(list)) => list,
+            Some(None) => panic!("Expected a node list, found {:?}", pg_list),
+            None => &[],
+        }
+    }
 }
 
 struct TreeAndWarnings {
-    tree: list::PgList,
+    tree: *mut raw::List,
     stderr_buffer: Option<ptr::NonNull<ffi::c_char>>,
 }
 
