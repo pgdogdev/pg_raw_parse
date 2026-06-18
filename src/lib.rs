@@ -6,6 +6,7 @@ pub mod error;
 pub mod list;
 mod mem;
 pub mod node_enum;
+pub mod nodes;
 #[allow(warnings)]
 pub mod raw;
 
@@ -45,15 +46,10 @@ pub struct ParseResult {
 impl ParseResult {
     /// Returns the list of statements received, panics if the list was a
     /// type other than Node
-    pub fn stmts(&self) -> &[*mut ffi::c_void] {
+    pub fn stmts(&self) -> Option<impl IntoIterator<Item = &*mut raw::Node>> {
         // SAFETY: The memory context of the tree is guaranteed to outlive
         // the lifetime of self. We are returning a lifetime shorter than self.
-        let pg_list = unsafe { PgList::from_ptr(self.tree.tree) };
-        match pg_list.map(PgList::as_node_list) {
-            Some(Some(list)) => list,
-            Some(None) => panic!("Expected a node list, found {:?}", pg_list),
-            None => &[],
-        }
+        unsafe { PgList::from_ptr(self.tree.tree) }.map(PgList::expect_node_list)
     }
 }
 
