@@ -40,8 +40,18 @@ fn main() {
             c_dir.join("src/postgres/include").display()
         ));
 
+    let mut node_bindings = String::new();
     bindgen
         .clone()
+        .generate()
+        .unwrap()
+        // SAFETY: YOLO
+        .write(Box::new(unsafe { node_bindings.as_mut_vec() }))
+        .unwrap();
+    let node_structs =
+        generate_node_structs(&node_bindings, &out_dir.join("nodes_raw.rs")).unwrap();
+
+    let mut bindgen = bindgen
         .allowlist_item("Node")
         .allowlist_item("MemoryContext")
         .allowlist_item("pg_query_init")
@@ -62,18 +72,14 @@ fn main() {
         // accident, and having that happen by accident is much more feasible
         // with the amount of codegen we're doing.
         .wrap_static_fns(true)
-        .wrap_static_fns_path(out_dir.join("wrap_static_fns"))
-        .generate()
-        .unwrap()
-        .write_to_file(out_dir.join("bindings.rs"))
-        .unwrap();
-
-    let mut node_bindings = String::new();
+        .wrap_static_fns_path(out_dir.join("wrap_static_fns"));
+    for struct_name in &node_structs {
+        bindgen = bindgen.blocklist_item(struct_name.to_string());
+    }
     bindgen
         .generate()
         .unwrap()
-        // SAFETY: YOLO
-        .write(Box::new(unsafe { node_bindings.as_mut_vec() }))
+        .write_to_file(out_dir.join("bindings.rs"))
         .unwrap();
 
     let mut build = cc::Build::new();
@@ -92,7 +98,6 @@ fn main() {
         .include(build_dir)
         .warnings(false)
         .compile("pg_query");
-    generate_node_structs(&node_bindings, &out_dir.join("nodes_raw.rs")).unwrap();
 }
 
 /// Generates the structs for each node and writes them to the given path.
