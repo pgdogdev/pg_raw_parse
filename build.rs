@@ -1,5 +1,4 @@
 use glob::glob;
-use std::convert::identity as id;
 use std::env;
 use std::path::{Path, PathBuf};
 use syn::{
@@ -27,12 +26,6 @@ fn main() {
                 .to_str()
                 .unwrap(),
         )
-        .allowlist_file(
-            c_dir
-                .join("src/postgres/include/nodes/primnodes.h")
-                .to_str()
-                .unwrap(),
-        )
         .derive_copy(false)
         .clang_arg(format!("-I{}", c_dir.display()))
         .clang_arg(format!(
@@ -43,6 +36,8 @@ fn main() {
     let mut node_bindings = String::new();
     bindgen
         .clone()
+        // This is another name for Node
+        .blocklist_type("Expr")
         .generate()
         .unwrap()
         // SAFETY: YOLO
@@ -50,6 +45,7 @@ fn main() {
         .unwrap();
     let node_structs =
         generate_node_structs(&node_bindings, &out_dir.join("nodes_raw.rs")).unwrap();
+    generate_node_enum(&node_structs, &out_dir.join("node_enum_raw.rs")).unwrap();
 
     let mut bindgen = bindgen
         .allowlist_item("Node")
@@ -66,11 +62,6 @@ fn main() {
         .allowlist_item("pg_query_free_error")
         .allowlist_item("pg_query_raw_parse")
         .allowlist_item("PgQueryParseMode")
-        // FIXME(sage): Either blocklist the structs we generate in
-        // nodes_raw.rs, or ensure that the types in the raw bindings are crate
-        // private. We don't want consuming code to receive a raw node on
-        // accident, and having that happen by accident is much more feasible
-        // with the amount of codegen we're doing.
         .wrap_static_fns(true)
         .wrap_static_fns_path(out_dir.join("wrap_static_fns"));
     for struct_name in &node_structs {
@@ -140,10 +131,10 @@ fn generate_node_structs(
             matches!(
                 s.fields.iter().nth(0),
                 Some(syn::Field {
-                    ty,
+                    ty: typ,
                     ..
-                }) if *ty == id::<syn::Type>(parse_quote!(NodeTag))
-                    || *ty == id::<syn::Type>(parse_quote!(Expr))
+                }) if *typ == ty(parse_quote!(NodeTag))
+                    || *typ == ty(parse_quote!(Expr))
             )
         })
         .cloned()
@@ -190,11 +181,21 @@ fn generate_node_structs(
 
         for field in s.fields.iter_mut() {
             let fname = &field.ident;
-            if field.ty == id::<syn::Type>(parse_quote!(NodeTag))
+            if field.ty == ty(parse_quote!(NodeTag))
+                || field.ty == ty(parse_quote!(Expr))
                 || is_flexible_array_ty(&field.ty)
                 || matches!(field.ty, syn::Type::Ptr(_))
             {
                 field.vis = syn::Visibility::Inherited;
+            }
+
+            // Expr* is just Node* with a different name for documentation
+            // purposes, but not consistently enough to justify treating it
+            // differently
+            if field.ty == ty(parse_quote!(*mut Expr)) {
+                field.ty = parse_quote!(*mut Node);
+            } else if field.ty == ty(parse_quote!(Expr)) {
+                field.ty = parse_quote!(NodeTag);
             }
 
             if let syn::Type::Ptr(ty) = &field.ty
@@ -209,11 +210,20 @@ fn generate_node_structs(
                 });
             }
 
-            if field.ty == id::<syn::Type>(parse_quote!(*mut List)) {
+            if field.ty == ty(parse_quote!(*mut List)) {
                 impl_.items.push(parse_quote! {
                     pub fn #fname(&self) -> Option<&crate::PgList> {
                         // SAFETY: The lifetime is not longer than self
                         unsafe { crate::PgList::from_ptr(self.#fname) }
+                    }
+                });
+            }
+
+            if field.ty == ty(parse_quote!(*mut Node)) {
+                impl_.items.push(parse_quote! {
+                    pub fn #fname(&self) -> crate::Node<'_> {
+                        // SAFETY: The lifetime is not longer than self
+                        unsafe { crate::Node::from_ptr(self.#fname) }
                     }
                 });
             }
@@ -235,8 +245,69 @@ fn generate_node_structs(
         out_file.items.push(s.into());
         out_file.items.push(impl_.into());
     }
-    std::fs::write(&path, prettyplease::unparse(&out_file))?;
+    std::fs::write(path, prettyplease::unparse(&out_file))?;
     Ok(local_struct_names)
+}
+
+fn generate_node_enum(
+    node_structs: &[syn::Ident],
+    path: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut out_file = syn::File {
+        shebang: None,
+        attrs: Vec::new(),
+        items: Vec::new(),
+    };
+
+    let node_tags: Vec<syn::Expr> = node_structs
+        .iter()
+        .map(|i| {
+            let tag_name = syn::Ident::new(&format!("NodeTag_T_{i}"), i.span());
+            parse_quote!(raw::#tag_name)
+        })
+        .collect();
+
+    let enum_variants = node_structs
+        .iter()
+        .zip(&node_tags)
+        .map::<syn::Variant, _>(|(i, tag)| parse_quote!(#i(&'a crate::nodes::#i) = #tag));
+    out_file.items.push(parse_quote! {
+        #[allow(nonstandard_style)]
+        #[repr(u32)]
+        pub enum Node<'a> {
+            /// A null pointer to a node
+            None,
+            /// A pointer to a node that wasn't part of a parse tree, or that
+            /// pg_raw_parse doesn't know how to generate code for.
+            Invalid(&'a raw::Node),
+            #(#enum_variants,)*
+        }
+    });
+
+    out_file.items.push(parse_quote! {
+        impl<'a> Node<'a> {
+            /// SAFETY: The caller is responsible for ensuring the provided
+            /// lifetime does not outlast the memory context this Node was
+            /// allocated in
+            pub(crate) unsafe fn from_ptr(ptr: *mut raw::Node) -> Self {
+                // SAFETY: PG will never return an invalid Node other than NULL
+                // and the caller is ensuring a valid lifetime
+                unsafe { ptr.as_ref() }.map(|p| {
+                    let tag = p.type_;
+                    match tag {
+                        #(#node_tags => {
+                            // SAFTEY: PG ensures structs are correctly tagged
+                            Self::#node_structs(unsafe {&*(p as *const _ as *const _)})
+                        })*
+                        _ => Self::Invalid(p),
+                    }
+                }).unwrap_or(Self::None)
+            }
+        }
+    });
+
+    std::fs::write(path, prettyplease::unparse(&out_file))?;
+    Ok(())
 }
 
 fn is_flexible_array_ty(ty: &syn::Type) -> bool {
@@ -273,4 +344,9 @@ fn is_primitive_alias(alias: &syn::ItemType) -> bool {
                         || s.ident == "f64"
                 }).unwrap_or(false)
         )
+}
+
+/// Type ascription for syn::Type
+fn ty(ty: syn::Type) -> syn::Type {
+    ty
 }
