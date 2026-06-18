@@ -1,5 +1,5 @@
 use crate::raw;
-use std::ffi::{c_int, c_void};
+use std::ffi::c_int;
 use std::ptr::NonNull;
 
 #[repr(u32)]
@@ -8,7 +8,7 @@ pub enum PgList {
     Node {
         length: c_int,
         _max: c_int,
-        elements: NonNull<*mut c_void>,
+        elements: NonNull<*mut raw::Node>,
     } = raw::NodeTag_T_List,
     Int {
         length: c_int,
@@ -59,7 +59,7 @@ impl PgList {
         unsafe { ptr.cast().as_ref() }
     }
 
-    pub fn as_node_list(&self) -> Option<&[*mut c_void]> {
+    pub fn as_node_list(&self) -> Option<impl IntoIterator<Item = &*mut raw::Node>> {
         match self {
             Self::Node {
                 length, elements, ..
@@ -71,6 +71,11 @@ impl PgList {
             }
             _ => None,
         }
+    }
+
+    pub fn expect_node_list(&self) -> impl IntoIterator<Item = &*mut raw::Node> {
+        self.as_node_list()
+            .unwrap_or_else(|| panic!("Expected a node list, found {:?}", self))
     }
 }
 

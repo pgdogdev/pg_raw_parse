@@ -1,6 +1,11 @@
 use glob::glob;
+use std::convert::identity as id;
 use std::env;
 use std::path::{Path, PathBuf};
+use syn::{
+    parse_quote,
+    visit::{self, Visit},
+};
 
 fn main() {
     let build_dir = env!("CARGO_MANIFEST_DIR");
@@ -11,7 +16,9 @@ fn main() {
     println!("cargo:rustc-link-search=native={}", out_dir.display());
     println!("cargo:rustc-link-lib=static=pg_query");
 
-    bindgen::builder()
+    // Bindgen args that are needed both for the C bindings and the node enum
+    // codegen
+    let bindgen = bindgen::builder()
         .header("wrapper.h")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .allowlist_file(
@@ -26,6 +33,15 @@ fn main() {
                 .to_str()
                 .unwrap(),
         )
+        .derive_copy(false)
+        .clang_arg(format!("-I{}", c_dir.display()))
+        .clang_arg(format!(
+            "-I{}",
+            c_dir.join("src/postgres/include").display()
+        ));
+
+    bindgen
+        .clone()
         .allowlist_item("Node")
         .allowlist_item("MemoryContext")
         .allowlist_item("pg_query_init")
@@ -40,16 +56,24 @@ fn main() {
         .allowlist_item("pg_query_free_error")
         .allowlist_item("pg_query_raw_parse")
         .allowlist_item("PgQueryParseMode")
-        .clang_arg(format!("-I{}", c_dir.display()))
-        .clang_arg(format!(
-            "-I{}",
-            c_dir.join("src/postgres/include").display()
-        ))
+        // FIXME(sage): Either blocklist the structs we generate in
+        // nodes_raw.rs, or ensure that the types in the raw bindings are crate
+        // private. We don't want consuming code to receive a raw node on
+        // accident, and having that happen by accident is much more feasible
+        // with the amount of codegen we're doing.
         .wrap_static_fns(true)
         .wrap_static_fns_path(out_dir.join("wrap_static_fns"))
         .generate()
         .unwrap()
         .write_to_file(out_dir.join("bindings.rs"))
+        .unwrap();
+
+    let mut node_bindings = String::new();
+    bindgen
+        .generate()
+        .unwrap()
+        // SAFETY: YOLO
+        .write(Box::new(unsafe { node_bindings.as_mut_vec() }))
         .unwrap();
 
     let mut build = cc::Build::new();
@@ -68,4 +92,180 @@ fn main() {
         .include(build_dir)
         .warnings(false)
         .compile("pg_query");
+    generate_node_structs(&node_bindings, &out_dir.join("nodes_raw.rs")).unwrap();
+}
+
+/// Generates the structs for each node and writes them to the given path.
+/// Returns a list of the struct names generated
+fn generate_node_structs(
+    bindings: &str,
+    path: &Path,
+) -> Result<Vec<syn::Ident>, Box<dyn std::error::Error>> {
+    let file = syn::parse_file(bindings)?;
+    let mut out_file = syn::File {
+        shebang: None,
+        attrs: Vec::new(),
+        items: Vec::new(),
+    };
+
+    // We're relying on missing imports triggering an error to tell us about
+    // any fields that need special handling, so we don't want to glob import
+    // the C bindings. But any type aliases to primitives are fine
+    let type_aliases_to_import = file.items.iter().filter_map(|item| match item {
+        syn::Item::Type(t) if is_primitive_alias(&t) => Some(&t.ident),
+        _ => None,
+    });
+    out_file.items.push(parse_quote! {
+        #[allow(unused)]
+        use crate::raw::{#(#type_aliases_to_import,)*};
+    });
+
+    let node_structs = file
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            syn::Item::Struct(s) => Some(s),
+            _ => None,
+        })
+        .filter(|s| {
+            // We don't want a Node enum variant for Node
+            s.ident != "Node" &&
+            // List is its own thing, not a type of Node
+            s.ident != "List" &&
+            matches!(
+                s.fields.iter().nth(0),
+                Some(syn::Field {
+                    ty,
+                    ..
+                }) if *ty == id::<syn::Type>(parse_quote!(NodeTag))
+                    || *ty == id::<syn::Type>(parse_quote!(Expr))
+            )
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let local_struct_names: Vec<_> = node_structs.iter().map(|s| s.ident.clone()).collect();
+    let local_struct_types: Vec<syn::Type> = local_struct_names
+        .iter()
+        .map(|i| parse_quote!(#i))
+        .collect();
+
+    struct ReferencesLocalStruct<'a> {
+        local_structs: &'a [syn::Type],
+        found: bool,
+    }
+
+    impl<'ast> Visit<'ast> for ReferencesLocalStruct<'_> {
+        fn visit_type(&mut self, node: &'ast syn::Type) {
+            if self.local_structs.contains(node) {
+                self.found = true
+            }
+            visit::visit_type(self, node);
+        }
+    }
+
+    let references_local_struct = |c| {
+        let mut visitor = ReferencesLocalStruct {
+            local_structs: &local_struct_types,
+            found: false,
+        };
+        visitor.visit_item_const(c);
+        visitor.found
+    };
+
+    // Keep the safety consts from bindgen
+    let safety_consts = file.items.iter().filter_map(|item| match item {
+        i @ syn::Item::Const(c) if c.ident == "_" && references_local_struct(&c) => Some(i.clone()),
+        _ => None,
+    });
+    out_file.items.extend(safety_consts);
+
+    for mut s in node_structs {
+        let sname = &s.ident;
+        let mut impl_: syn::ItemImpl = parse_quote!(impl #sname {});
+
+        for field in s.fields.iter_mut() {
+            let fname = &field.ident;
+            if field.ty == id::<syn::Type>(parse_quote!(NodeTag))
+                || is_flexible_array_ty(&field.ty)
+                || matches!(field.ty, syn::Type::Ptr(_))
+            {
+                field.vis = syn::Visibility::Inherited;
+            }
+
+            if let syn::Type::Ptr(ty) = &field.ty
+                && local_struct_types.contains(&ty.elem)
+            {
+                let inner_ty = &ty.elem;
+                impl_.items.push(parse_quote! {
+                    pub fn #fname(&self) -> Option<&#inner_ty> {
+                        // SAFETY: Pointer will always be valid or NULL
+                        unsafe { self.#fname.as_ref() }
+                    }
+                });
+            }
+
+            if field.ty == id::<syn::Type>(parse_quote!(*mut List)) {
+                impl_.items.push(parse_quote! {
+                    pub fn #fname(&self) -> Option<&crate::PgList> {
+                        // SAFETY: The lifetime is not longer than self
+                        unsafe { crate::PgList::from_ptr(self.#fname) }
+                    }
+                });
+            }
+
+            if is_c_string(&field.ty) {
+                impl_.items.push(parse_quote! {
+                    pub fn #fname(&self) -> Option<&std::ffi::CStr> {
+                        if self.#fname.is_null() {
+                            None
+                        } else {
+                            // SAFETY: PG will always give us a valid string or NULL
+                            Some(unsafe { std::ffi::CStr::from_ptr(self.#fname) })
+                        }
+                    }
+                })
+            }
+        }
+
+        out_file.items.push(s.into());
+        out_file.items.push(impl_.into());
+    }
+    std::fs::write(&path, prettyplease::unparse(&out_file))?;
+    Ok(local_struct_names)
+}
+
+fn is_flexible_array_ty(ty: &syn::Type) -> bool {
+    matches!(
+        ty,
+        syn::Type::Path(
+            syn::TypePath { path: syn::Path { segments, .. }, .. },
+        ) if segments.first().map(|s| s.ident == "__IncompleteArrayField").unwrap_or(false),
+    )
+}
+
+fn is_c_string(ty: &syn::Type) -> bool {
+    matches!(
+        ty,
+        syn::Type::Ptr(syn::TypePtr { elem, .. })
+            if matches!(&**elem, syn::Type::Path(syn::TypePath { path: syn::Path { segments, .. }, .. })
+                if segments.last().map(|s| s.ident == "c_char").unwrap_or(false)))
+}
+
+fn is_primitive_alias(alias: &syn::ItemType) -> bool {
+    alias.ident.to_string().contains("int")
+        || matches!(
+            &*alias.ty,
+            syn::Type::Path(syn::TypePath {
+                path: syn::Path { segments, .. },
+                ..
+            })
+                if segments.last().map(|s| {
+                    s.ident.to_string().contains("int")
+                        || s.ident == "usize"
+                        || s.ident == "isize"
+                        || s.ident == "Oid"
+                        || s.ident == "f32"
+                        || s.ident == "f64"
+                }).unwrap_or(false)
+        )
 }
