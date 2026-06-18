@@ -32,6 +32,7 @@ fn test_raw_node_bindings_arent_generated() {
     node_structs.sort();
 
     // We need the raw binding to Node for tag checking, List and
-    // MemoryContextData are both their own thing
-    assert_eq!(node_structs, &["List", "MemoryContextData", "Node"]);
+    // MemoryContextData are both their own thing, Expr is just an alias for
+    // Node
+    assert_eq!(node_structs, &["Expr", "List", "MemoryContextData", "Node"]);
 }

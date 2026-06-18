@@ -9,6 +9,3 @@ impl Bitmapset {
         unsafe { self.words.as_slice(self.nwords as _) }
     }
 }
-
-pub type DistinctExpr = OpExpr;
-pub type NullIfExpr = OpExpr;

@@ -1,4 +1,4 @@
-use crate::raw;
+use crate::{Node, raw};
 use std::ffi::c_int;
 use std::ptr::NonNull;
 
@@ -59,21 +59,26 @@ impl PgList {
         unsafe { ptr.cast().as_ref() }
     }
 
-    pub fn as_node_list(&self) -> Option<impl IntoIterator<Item = &*mut raw::Node>> {
+    pub fn as_node_list(&self) -> Option<impl Iterator<Item = Node<'_>>> {
         match self {
             Self::Node {
                 length, elements, ..
             } => {
-                // SAFETY: PgList can never be passed by value, the borrow
-                // checker will ensure the elements pointer hasn't been freed.
-                // PG guarantees that any list has a length >= 1
-                Some(unsafe { std::slice::from_raw_parts(elements.as_ptr(), *length as _) })
+                Some(
+                    // SAFETY: PgList can never be passed by value, the borrow
+                    // checker will ensure the elements pointer hasn't been freed.
+                    // PG guarantees that any list has a length >= 1
+                    unsafe { std::slice::from_raw_parts(elements.as_ptr(), *length as _) }
+                        .iter()
+                        // SAFETY: The lifetime given is the lifetime of self
+                        .map(|&p| unsafe { Node::from_ptr(p) }),
+                )
             }
             _ => None,
         }
     }
 
-    pub fn expect_node_list(&self) -> impl IntoIterator<Item = &*mut raw::Node> {
+    pub fn expect_node_list(&self) -> impl Iterator<Item = Node<'_>> {
         self.as_node_list()
             .unwrap_or_else(|| panic!("Expected a node list, found {:?}", self))
     }

@@ -12,6 +12,7 @@ pub mod raw;
 
 pub use crate::error::Error;
 pub use crate::list::PgList;
+pub use crate::node_enum::Node;
 
 pub fn parse(sql: &str) -> Result<ParseResult, error::Error> {
     let mem = mem::MemoryContext::new(c"pg_raw_parse");
@@ -46,10 +47,12 @@ pub struct ParseResult {
 impl ParseResult {
     /// Returns the list of statements received, panics if the list was a
     /// type other than Node
-    pub fn stmts(&self) -> Option<impl IntoIterator<Item = &*mut raw::Node>> {
+    pub fn stmts(&self) -> impl Iterator<Item = Node<'_>> {
         // SAFETY: The memory context of the tree is guaranteed to outlive
         // the lifetime of self. We are returning a lifetime shorter than self.
-        unsafe { PgList::from_ptr(self.tree.tree) }.map(PgList::expect_node_list)
+        unsafe { PgList::from_ptr(self.tree.tree) }
+            .into_iter()
+            .flat_map(PgList::expect_node_list)
     }
 }
 
