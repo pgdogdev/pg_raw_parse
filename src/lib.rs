@@ -44,6 +44,12 @@ pub struct ParseResult {
     _mem: mem::MemoryContext,
 }
 
+// SAFETY: No reason this couldn't be sent to another thread
+unsafe impl Send for ParseResult {}
+// SAFETY: As long as we are don't try to enter the memory context after this
+// is constructed, we're all good
+unsafe impl Sync for ParseResult {}
+
 impl ParseResult {
     /// Returns the list of statements received, panics if the list was a
     /// type other than Node
