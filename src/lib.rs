@@ -2,6 +2,7 @@
 use std::ffi;
 use std::ptr;
 
+pub mod const_val;
 pub mod error;
 pub mod list;
 mod mem;
