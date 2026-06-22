@@ -252,12 +252,16 @@ fn generate_node_structs(
 
             if is_c_string(&field.ty) {
                 impl_.items.push(parse_quote! {
-                    pub fn #fname(&self) -> Option<&std::ffi::CStr> {
+                    pub fn #fname(&self) -> Option<&str> {
                         if self.#fname.is_null() {
                             None
                         } else {
                             // SAFETY: PG will always give us a valid string or NULL
-                            Some(unsafe { std::ffi::CStr::from_ptr(self.#fname) })
+                            Some(
+                                unsafe { std::ffi::CStr::from_ptr(self.#fname) }
+                                    .to_str()
+                                    .expect("Parsing is always done in UTF-8"),
+                            )
                         }
                     }
                 })
