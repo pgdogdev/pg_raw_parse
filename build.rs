@@ -7,10 +7,10 @@ use syn::{
 };
 
 fn main() {
-    let build_dir = env!("CARGO_MANIFEST_DIR");
+    let build_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let out_dir =
         PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR always present in build scripts"));
-    let c_dir = Path::new(build_dir).join("libpg_query");
+    let c_dir = build_dir.join("libpg_query");
     println!("cargo:rerun-if-changed=libpg_query");
     println!("cargo:rustc-link-search=native={}", out_dir.display());
     println!("cargo:rustc-link-lib=static=pg_query");
@@ -26,7 +26,14 @@ fn main() {
                 .to_str()
                 .unwrap(),
         )
+        .allowlist_file(
+            c_dir
+                .join("src/postgres/include/nodes/primnodes.h")
+                .to_str()
+                .unwrap(),
+        )
         .derive_copy(false)
+        .clang_arg(format!("-I{}", build_dir.join("include").display()))
         .clang_arg(format!("-I{}", c_dir.display()))
         .clang_arg(format!(
             "-I{}",
@@ -38,6 +45,8 @@ fn main() {
         .clone()
         // This is another name for Node
         .blocklist_type("Expr")
+        // This is yet another name for Node
+        .blocklist_type("JsonTablePlan")
         .generate()
         .unwrap()
         // SAFETY: YOLO
@@ -62,6 +71,11 @@ fn main() {
         .allowlist_item("pg_query_free_error")
         .allowlist_item("pg_query_raw_parse")
         .allowlist_item("PgQueryParseMode")
+        .allowlist_item("wrapped_raw_expression_tree_walker_impl")
+        .override_abi(
+            bindgen::Abi::CUnwind,
+            "wrapped_raw_expression_tree_walker_impl",
+        )
         .wrap_static_fns(true)
         .wrap_static_fns_path(out_dir.join("wrap_static_fns"));
     for struct_name in &node_structs {
@@ -82,11 +96,13 @@ fn main() {
                 .map(Result::unwrap),
         )
         .file(out_dir.join("wrap_static_fns.c"))
+        .file(build_dir.join("copy_pg_error.c"))
         .include(&*c_dir)
         .include(c_dir.join("vendor"))
         .include(c_dir.join("src/postgres/include"))
         .include(c_dir.join("src/include"))
         .include(build_dir)
+        .include(build_dir.join("include"))
         .warnings(false)
         .compile("pg_query");
 }
@@ -183,6 +199,7 @@ fn generate_node_structs(
             let fname = &field.ident;
             if field.ty == ty(parse_quote!(NodeTag))
                 || field.ty == ty(parse_quote!(Expr))
+                || field.ty == ty(parse_quote!(ValUnion))
                 || is_flexible_array_ty(&field.ty)
                 || matches!(field.ty, syn::Type::Ptr(_))
             {
@@ -196,6 +213,11 @@ fn generate_node_structs(
                 field.ty = parse_quote!(*mut Node);
             } else if field.ty == ty(parse_quote!(Expr)) {
                 field.ty = parse_quote!(NodeTag);
+                s.attrs.push(parse_quote!(#[derive(Debug)]));
+            } else if field.ty == ty(parse_quote!(ValUnion)) {
+                // FIXME(sage): Need special handling for this
+                field.ty = parse_quote!([u64; 2]);
+                s.attrs.push(parse_quote!(#[derive(Debug)]));
             }
 
             if let syn::Type::Ptr(ty) = &field.ty
@@ -270,10 +292,11 @@ fn generate_node_enum(
     let enum_variants = node_structs
         .iter()
         .zip(&node_tags)
-        .map::<syn::Variant, _>(|(i, tag)| parse_quote!(#i(&'a crate::nodes::#i) = #tag));
+        .map::<syn::Variant, _>(|(i, tag)| parse_quote!(#i(&'a nodes::#i) = #tag));
     out_file.items.push(parse_quote! {
         #[allow(nonstandard_style)]
         #[repr(u32)]
+        #[derive(Debug, Clone, Copy)]
         pub enum Node<'a> {
             /// A null pointer to a node
             None,
@@ -302,6 +325,14 @@ fn generate_node_enum(
                         _ => Self::Invalid(p),
                     }
                 }).unwrap_or(Self::None)
+            }
+
+            pub(crate) fn as_ptr(&self) -> *mut raw::Node {
+                match *self {
+                    Self::None => std::ptr::null_mut(),
+                    Self::Invalid(p) => (&raw const *p).cast_mut(),
+                    #(Self::#node_structs(p) => (&raw const *p).cast_mut().cast(),)*
+                }
             }
         }
     });

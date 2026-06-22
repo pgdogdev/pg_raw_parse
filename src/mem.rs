@@ -24,6 +24,10 @@ impl MemoryContext {
         Self(ctx)
     }
 
+    pub(crate) fn from_raw(raw: raw::MemoryContext) -> Self {
+        Self(raw)
+    }
+
     /// Runs the given closure in the memory context of self. Will revert to
     /// the previous memory context before returning. If the provided fucntion
     /// panics, all future calls to this function will panic.
