@@ -1,4 +1,4 @@
-#![allow(non_snake_case)]
+#![allow(non_snake_case, clippy::tabs_in_doc_comments)]
 use crate::raw::{__IncompleteArrayField, List, Node, ValUnion};
 
 include!(concat!(env!("OUT_DIR"), "/nodes_raw.rs"));

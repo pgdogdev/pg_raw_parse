@@ -108,7 +108,7 @@ fn generate_node_structs(
     // any fields that need special handling, so we don't want to glob import
     // the C bindings. But any type aliases to primitives are fine
     let type_aliases_to_import = file.items.iter().filter_map(|item| match item {
-        syn::Item::Type(t) if is_primitive_alias(&t) => Some(&t.ident),
+        syn::Item::Type(t) if is_primitive_alias(t) => Some(&t.ident),
         _ => None,
     });
     out_file.items.push(parse_quote! {
@@ -129,7 +129,7 @@ fn generate_node_structs(
             // List is its own thing, not a type of Node
             s.ident != "List" &&
             matches!(
-                s.fields.iter().nth(0),
+                s.fields.iter().next(),
                 Some(syn::Field {
                     ty: typ,
                     ..
@@ -170,7 +170,7 @@ fn generate_node_structs(
 
     // Keep the safety consts from bindgen
     let safety_consts = file.items.iter().filter_map(|item| match item {
-        i @ syn::Item::Const(c) if c.ident == "_" && references_local_struct(&c) => Some(i.clone()),
+        i @ syn::Item::Const(c) if c.ident == "_" && references_local_struct(c) => Some(i.clone()),
         _ => None,
     });
     out_file.items.extend(safety_consts);
