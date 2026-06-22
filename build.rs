@@ -203,7 +203,7 @@ fn generate_node_structs(
                 || is_flexible_array_ty(&field.ty)
                 || matches!(field.ty, syn::Type::Ptr(_))
             {
-                field.vis = syn::Visibility::Inherited;
+                field.vis = parse_quote!(pub(crate));
             }
 
             // Expr* is just Node* with a different name for documentation
@@ -213,10 +213,6 @@ fn generate_node_structs(
                 field.ty = parse_quote!(*mut Node);
             } else if field.ty == ty(parse_quote!(Expr)) {
                 field.ty = parse_quote!(NodeTag);
-                s.attrs.push(parse_quote!(#[derive(Debug)]));
-            } else if field.ty == ty(parse_quote!(ValUnion)) {
-                // FIXME(sage): Need special handling for this
-                field.ty = parse_quote!([u64; 2]);
                 s.attrs.push(parse_quote!(#[derive(Debug)]));
             }
 
@@ -262,6 +258,18 @@ fn generate_node_structs(
                                     .to_str()
                                     .expect("Parsing is always done in UTF-8"),
                             )
+                        }
+                    }
+                })
+            }
+
+            if field.ty == ty(parse_quote!(ValUnion)) {
+                impl_.items.push(parse_quote! {
+                    pub fn #fname(&self) -> Option<ConstValue<'_>> {
+                        if self.isnull {
+                            None
+                        } else {
+                            Some(ConstValue(&self.val))
                         }
                     }
                 })
