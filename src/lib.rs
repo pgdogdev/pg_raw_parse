@@ -7,10 +7,12 @@ pub mod list;
 mod mem;
 pub mod node_enum;
 pub mod nodes;
+mod pg_error;
 #[allow(warnings)]
 pub mod raw;
+pub mod walk;
 
-pub use crate::error::Error;
+pub use crate::error::{Error, Result};
 pub use crate::list::PgList;
 pub use crate::node_enum::Node;
 
@@ -59,6 +61,10 @@ impl ParseResult {
         unsafe { PgList::from_ptr(self.tree.tree) }
             .into_iter()
             .flat_map(PgList::expect_node_list)
+            .map(|n| match n {
+                Node::RawStmt(stmt) => stmt.stmt(),
+                n => n,
+            })
     }
 }
 

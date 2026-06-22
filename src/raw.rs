@@ -1,6 +1,19 @@
+//! Functions in this module should never be called unless they have been
+//! manually wrapped *IN C* with `PG_TRY()` and `PG_CATCH()`. PG errors use
+//! `longjmp`, and jumping over any Rust frames is undefined behavior.
+
 use crate::nodes::*;
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+
+impl Error {
+    pub(crate) fn null() -> Self {
+        Self {
+            mem: std::ptr::null_mut(),
+            error_data: std::ptr::null_mut(),
+        }
+    }
+}
 
 #[test]
 fn test_raw_node_bindings_arent_generated() {
@@ -34,5 +47,8 @@ fn test_raw_node_bindings_arent_generated() {
     // We need the raw binding to Node for tag checking, List and
     // MemoryContextData are both their own thing, Expr is just an alias for
     // Node
-    assert_eq!(node_structs, &["Expr", "List", "MemoryContextData", "Node"]);
+    assert_eq!(
+        node_structs,
+        &["Expr", "JsonTablePlan", "List", "MemoryContextData", "Node"]
+    );
 }

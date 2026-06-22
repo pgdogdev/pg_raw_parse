@@ -1,12 +1,18 @@
+use crate::pg_error::PgError;
 use crate::raw;
 use std::{ffi, fmt, ptr};
 use thiserror::Error;
+
+pub type Result<T = (), E = Error> = std::result::Result<T, E>;
 
 #[derive(Error, Debug)]
 pub enum Error {
     /// An error was returned from pg_parse
     #[error("Invalid statement: {0}")]
     Parse(#[from] CError),
+    /// An error was returned from a PostgreSQL function
+    #[error("PG internal error: {0}")]
+    PgError(#[from] PgError),
     /// Statement contianed nul bytes
     #[error("Statement contained nul bytes: {0}")]
     StatementContainedNul(#[from] ffi::NulError),
