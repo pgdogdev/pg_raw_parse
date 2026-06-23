@@ -1,6 +1,5 @@
 #![cfg_attr(feature = "field_offset_assertions", feature(offset_of_enum))]
-use std::ffi;
-use std::ptr;
+use std::{ffi, fmt, ptr};
 
 pub mod const_val;
 pub mod error;
@@ -66,6 +65,14 @@ impl ParseResult {
                 Node::RawStmt(stmt) => stmt.stmt(),
                 n => n,
             })
+    }
+}
+
+impl fmt::Debug for ParseResult {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("ParseResult")
+            .field("stmts", &&*self.stmts().collect::<Vec<_>>())
+            .finish_non_exhaustive()
     }
 }
 
