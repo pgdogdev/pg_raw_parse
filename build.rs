@@ -19,6 +19,7 @@ fn main() {
     // codegen
     let bindgen = bindgen::builder()
         .header("wrapper.h")
+        .generate_comments(true)
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .allowlist_file(
             c_dir
@@ -47,6 +48,8 @@ fn main() {
         .blocklist_type("Expr")
         // This is yet another name for Node
         .blocklist_type("JsonTablePlan")
+        // Yes, we want doc comments
+        .clang_arg("-fparse-all-comments")
         .generate()
         .unwrap()
         // SAFETY: YOLO
@@ -192,11 +195,16 @@ fn generate_node_structs(
     out_file.items.extend(safety_consts);
 
     for mut s in node_structs {
+        clean_doc_comments(&mut s.attrs);
+
         let sname = &s.ident;
         let mut impl_: syn::ItemImpl = parse_quote!(impl #sname {});
 
         for field in s.fields.iter_mut() {
+            clean_doc_comments(&mut field.attrs);
+
             let fname = &field.ident;
+            let fattrs = &field.attrs;
             if field.ty == ty(parse_quote!(NodeTag))
                 || field.ty == ty(parse_quote!(Expr))
                 || field.ty == ty(parse_quote!(ValUnion))
@@ -221,6 +229,7 @@ fn generate_node_structs(
             {
                 let inner_ty = &ty.elem;
                 impl_.items.push(parse_quote! {
+                    #(#fattrs)*
                     pub fn #fname(&self) -> Option<&#inner_ty> {
                         // SAFETY: Pointer will always be valid or NULL
                         unsafe { self.#fname.as_ref() }
@@ -230,6 +239,7 @@ fn generate_node_structs(
 
             if field.ty == ty(parse_quote!(*mut List)) {
                 impl_.items.push(parse_quote! {
+                    #(#fattrs)*
                     pub fn #fname(&self) -> Option<&crate::PgList> {
                         // SAFETY: The lifetime is not longer than self
                         unsafe { crate::PgList::from_ptr(self.#fname) }
@@ -239,6 +249,7 @@ fn generate_node_structs(
 
             if field.ty == ty(parse_quote!(*mut Node)) {
                 impl_.items.push(parse_quote! {
+                    #(#fattrs)*
                     pub fn #fname(&self) -> crate::Node<'_> {
                         // SAFETY: The lifetime is not longer than self
                         unsafe { crate::Node::from_ptr(self.#fname) }
@@ -248,6 +259,7 @@ fn generate_node_structs(
 
             if is_c_string(&field.ty) {
                 impl_.items.push(parse_quote! {
+                    #(#fattrs)*
                     pub fn #fname(&self) -> Option<&str> {
                         if self.#fname.is_null() {
                             None
@@ -265,6 +277,7 @@ fn generate_node_structs(
 
             if field.ty == ty(parse_quote!(ValUnion)) {
                 impl_.items.push(parse_quote! {
+                    #(#fattrs)*
                     pub fn #fname(&self) -> Option<ConstValue<'_>> {
                         if self.isnull {
                             None
@@ -387,6 +400,44 @@ fn is_primitive_alias(alias: &syn::ItemType) -> bool {
                         || s.ident == "f64"
                 }).unwrap_or(false)
         )
+}
+
+/// For any attributes that are doc comments, clean up characters that will
+/// have unintended special meaning in markdown:
+///
+/// Escape any angle brackets (they aren't intended as HTML tags)
+/// Escape any square brackets (they aren't intended as links)
+/// Trim any leading whitespace (it isn't intended as a Rust code block)
+/// Remove any lines that are entirely - and * (they aren't intended as headers)
+fn clean_doc_comments(attrs: &mut [syn::Attribute]) {
+    use syn::{Expr, ExprLit, Lit, LitStr, Meta};
+    for attr in attrs {
+        let Meta::NameValue(name_value) = &mut attr.meta else {
+            continue;
+        };
+        if name_value.path != parse_quote!(doc) {
+            continue;
+        }
+        let Expr::Lit(ExprLit {
+            lit: Lit::Str(s), ..
+        }) = &mut name_value.value
+        else {
+            continue;
+        };
+
+        let docstr = s
+            .value()
+            .replace("<", "\\<")
+            .replace(">", "\\>")
+            .replace("[", "\\[")
+            .replace("]", "\\]")
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| l.is_empty() || !l.chars().all(|c| c == '-'))
+            .collect::<Vec<_>>()
+            .join("\n");
+        *s = LitStr::new(&format!(" {docstr}"), s.span());
+    }
 }
 
 /// Type ascription for syn::Type

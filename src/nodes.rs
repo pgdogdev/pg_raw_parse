@@ -1,4 +1,4 @@
-#![allow(non_snake_case, clippy::tabs_in_doc_comments)]
+#![allow(non_snake_case)]
 use crate::const_val::ConstValue;
 use crate::raw::{__IncompleteArrayField, List, Node, ValUnion};
 use std::fmt;
