@@ -13,7 +13,7 @@ fn main() {
     let c_dir = build_dir.join("libpg_query");
     println!("cargo:rerun-if-changed=libpg_query");
     println!("cargo:rustc-link-search=native={}", out_dir.display());
-    println!("cargo:rustc-link-lib=static=pg_query");
+    println!("cargo:rustc-link-lib=static=pg_raw_parse");
 
     // Bindgen args that are needed both for the C bindings and the node enum
     // codegen
@@ -100,6 +100,11 @@ fn main() {
         )
         .file(out_dir.join("wrap_static_fns.c"))
         .file(build_dir.join("copy_pg_error.c"))
+        // Unfortunately, the linker expects protobuf functions to be present
+        // even if we're never using them
+        .file(c_dir.join("vendor/protobuf-c/protobuf-c.c"))
+        .file(c_dir.join("vendor/xxhash/xxhash.c"))
+        .file(c_dir.join("protobuf/pg_query.pb-c.c"))
         .include(&*c_dir)
         .include(c_dir.join("vendor"))
         .include(c_dir.join("src/postgres/include"))
@@ -107,7 +112,7 @@ fn main() {
         .include(build_dir)
         .include(build_dir.join("include"))
         .warnings(false)
-        .compile("pg_query");
+        .compile("pg_raw_parse");
 }
 
 /// Generates the structs for each node and writes them to the given path.
