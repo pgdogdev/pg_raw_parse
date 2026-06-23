@@ -553,6 +553,7 @@ dependencies = [
  "libc",
  "pg_query",
  "prettyplease",
+ "regex",
  "syn",
  "thiserror 2.0.18",
 ]

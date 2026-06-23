@@ -1,8 +1,10 @@
 use glob::glob;
+use regex::Regex;
 use std::env;
 use std::path::{Path, PathBuf};
 use syn::{
     parse_quote,
+    spanned::Spanned,
     visit::{self, Visit},
 };
 
@@ -168,6 +170,13 @@ fn generate_node_structs(
         .iter()
         .map(|i| parse_quote!(#i))
         .collect();
+    let struct_name_regex = local_struct_names
+        .iter()
+        .rev()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>()
+        .join("|");
+    let type_comment_regex = Regex::new(&format!("[lL]ist \\(?of (#{struct_name_regex})")).unwrap();
 
     struct ReferencesLocalStruct<'a> {
         local_structs: &'a [syn::Type],
@@ -252,7 +261,7 @@ fn generate_node_structs(
                 let doc_comments = doc_comments(fattrs)
                     .map(|doc| doc.value())
                     .collect::<Vec<_>>();
-                let doc_comments = doc_comments
+                let doc_comments_lower = doc_comments
                     .iter()
                     .flat_map(|doc| doc.lines())
                     .map(|doc| doc.trim().to_lowercase());
@@ -260,15 +269,34 @@ fn generate_node_structs(
                 // We assume any list that isn't a list of nodes will have a
                 // comment that indicates it's an OID or int list. We expect
                 // to never receive an xid list from the parser
-                if doc_comments.clone().any(|doc| doc.starts_with("oid list")) {
+                if doc_comments_lower
+                    .clone()
+                    .any(|doc| doc.starts_with("oid list"))
+                {
                     return_ty = parse_quote!(crate::raw::Oid);
                     list_expr = parse_quote!(#list_expr.map(|l| l.expect_oid_list()));
-                } else if doc_comments
+                } else if doc_comments_lower
                     .clone()
                     .any(|doc| doc.starts_with("int list") || doc.starts_with("integer list"))
                 {
                     return_ty = parse_quote!(std::ffi::c_int);
                     list_expr = parse_quote!(#list_expr.map(|l| l.expect_int_list()));
+                } else if let Some(captures) = doc_comments
+                    .iter()
+                    .find_map(|doc| type_comment_regex.captures(&doc))
+                {
+                    let type_name = &captures[1];
+                    let ident = syn::Ident::new(type_name, field.ty.span());
+                    return_ty = parse_quote!(&#ident);
+                    list_expr = parse_quote! {
+                        #list_expr.map(|l| {
+                            l.expect_node_list()
+                                .map(|n| match n {
+                                    crate::Node::#ident(n) => n,
+                                    _ => panic!("Expected {}, found {:?}", #type_name, n),
+                                })
+                        })
+                    };
                 } else {
                     return_ty = parse_quote!(crate::Node<'_>);
                     list_expr = parse_quote!(#list_expr.map(|l| l.expect_node_list()));
