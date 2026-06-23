@@ -59,7 +59,7 @@ impl PgList {
         unsafe { ptr.cast().as_ref() }
     }
 
-    pub fn as_node_list(&self) -> Option<impl Iterator<Item = Node<'_>>> {
+    pub fn as_node_list(&self) -> Option<impl Iterator<Item = Node<'_>> + ExactSizeIterator> {
         match self {
             Self::Node {
                 length, elements, ..
@@ -78,7 +78,7 @@ impl PgList {
         }
     }
 
-    pub fn expect_node_list(&self) -> impl Iterator<Item = Node<'_>> {
+    pub fn expect_node_list(&self) -> impl Iterator<Item = Node<'_>> + ExactSizeIterator {
         self.as_node_list()
             .unwrap_or_else(|| panic!("Expected a node list, found {:?}", self))
     }
