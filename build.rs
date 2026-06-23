@@ -243,11 +243,41 @@ fn generate_node_structs(
             }
 
             if field.ty == ty(parse_quote!(*mut List)) {
+                let return_ty: syn::Type;
+                let mut list_expr: syn::Expr = parse_quote! {
+                    // SAFETY: The lifetime is not longer than self
+                    unsafe { crate::PgList::from_ptr(self.#fname) }
+                };
+
+                let doc_comments = doc_comments(fattrs)
+                    .map(|doc| doc.value())
+                    .collect::<Vec<_>>();
+                let doc_comments = doc_comments
+                    .iter()
+                    .flat_map(|doc| doc.lines())
+                    .map(|doc| doc.trim().to_lowercase());
+
+                // We assume any list that isn't a list of nodes will have a
+                // comment that indicates it's an OID or int list. We expect
+                // to never receive an xid list from the parser
+                if doc_comments.clone().any(|doc| doc.starts_with("oid list")) {
+                    return_ty = parse_quote!(crate::raw::Oid);
+                    list_expr = parse_quote!(#list_expr.map(|l| l.expect_oid_list()));
+                } else if doc_comments
+                    .clone()
+                    .any(|doc| doc.starts_with("int list") || doc.starts_with("integer list"))
+                {
+                    return_ty = parse_quote!(std::ffi::c_int);
+                    list_expr = parse_quote!(#list_expr.map(|l| l.expect_int_list()));
+                } else {
+                    return_ty = parse_quote!(crate::Node<'_>);
+                    list_expr = parse_quote!(#list_expr.map(|l| l.expect_node_list()));
+                }
+
                 impl_.items.push(parse_quote! {
                     #(#fattrs)*
-                    pub fn #fname(&self) -> Option<&crate::PgList> {
-                        // SAFETY: The lifetime is not longer than self
-                        unsafe { crate::PgList::from_ptr(self.#fname) }
+                    pub fn #fname(&self) -> impl Iterator<Item = #return_ty> + ExactSizeIterator {
+                        crate::util::to_flat_iter(#list_expr)
                     }
                 });
             }
@@ -415,21 +445,8 @@ fn is_primitive_alias(alias: &syn::ItemType) -> bool {
 /// Trim any leading whitespace (it isn't intended as a Rust code block)
 /// Remove any lines that are entirely - and * (they aren't intended as headers)
 fn clean_doc_comments(attrs: &mut [syn::Attribute]) {
-    use syn::{Expr, ExprLit, Lit, LitStr, Meta};
-    for attr in attrs {
-        let Meta::NameValue(name_value) = &mut attr.meta else {
-            continue;
-        };
-        if name_value.path != parse_quote!(doc) {
-            continue;
-        }
-        let Expr::Lit(ExprLit {
-            lit: Lit::Str(s), ..
-        }) = &mut name_value.value
-        else {
-            continue;
-        };
-
+    use syn::LitStr;
+    for s in doc_comments_mut(attrs) {
         let docstr = s
             .value()
             .replace("<", "\\<")
@@ -440,9 +457,54 @@ fn clean_doc_comments(attrs: &mut [syn::Attribute]) {
             .map(|l| l.trim())
             .filter(|l| l.is_empty() || !l.chars().all(|c| c == '-'))
             .collect::<Vec<_>>()
-            .join("\n");
+            .join("\n")
+            .replace("*/\n/*", "\n");
         *s = LitStr::new(&format!(" {docstr}"), s.span());
     }
+}
+
+/// Returns an iterator of pointers to the LitStr value of any doc comment
+/// attributes that exist in the list
+fn doc_comments_mut<'a>(
+    attrs: impl IntoIterator<Item = &'a mut syn::Attribute>,
+) -> impl Iterator<Item = &'a mut syn::LitStr> {
+    use syn::{Expr, ExprLit, Lit, Meta};
+
+    attrs
+        .into_iter()
+        .filter_map(|attr| match &mut attr.meta {
+            Meta::NameValue(name_value) => Some(name_value),
+            _ => None,
+        })
+        .filter(|nv| nv.path == parse_quote!(doc))
+        .filter_map(|nv| match &mut nv.value {
+            Expr::Lit(ExprLit {
+                lit: Lit::Str(s), ..
+            }) => Some(s),
+            _ => None,
+        })
+}
+
+/// Returns an iterator of pointers to the LitStr value of any doc comment
+/// attributes that exist in the list
+fn doc_comments<'a>(
+    attrs: impl IntoIterator<Item = &'a syn::Attribute>,
+) -> impl Iterator<Item = &'a syn::LitStr> {
+    use syn::{Expr, ExprLit, Lit, Meta};
+
+    attrs
+        .into_iter()
+        .filter_map(|attr| match &attr.meta {
+            Meta::NameValue(name_value) => Some(name_value),
+            _ => None,
+        })
+        .filter(|nv| nv.path == parse_quote!(doc))
+        .filter_map(|nv| match &nv.value {
+            Expr::Lit(ExprLit {
+                lit: Lit::Str(s), ..
+            }) => Some(s),
+            _ => None,
+        })
 }
 
 /// Type ascription for syn::Type

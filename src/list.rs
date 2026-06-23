@@ -82,6 +82,52 @@ impl PgList {
         self.as_node_list()
             .unwrap_or_else(|| panic!("Expected a node list, found {:?}", self))
     }
+
+    pub fn as_oid_list(&self) -> Option<impl Iterator<Item = raw::Oid> + ExactSizeIterator> {
+        match self {
+            Self::Oid {
+                length, elements, ..
+            } => {
+                Some(
+                    // SAFETY: PgList can never be passed by value, the borrow
+                    // checker will ensure the elements pointer hasn't been freed.
+                    // PG guarantees that any list has a length >= 1
+                    unsafe { std::slice::from_raw_parts(elements.as_ptr(), *length as _) }
+                        .iter()
+                        .copied(),
+                )
+            }
+            _ => None,
+        }
+    }
+
+    pub fn expect_oid_list(&self) -> impl Iterator<Item = raw::Oid> + ExactSizeIterator {
+        self.as_oid_list()
+            .unwrap_or_else(|| panic!("Expected a oid list, found {:?}", self))
+    }
+
+    pub fn as_int_list(&self) -> Option<impl Iterator<Item = c_int> + ExactSizeIterator> {
+        match self {
+            Self::Int {
+                length, elements, ..
+            } => {
+                Some(
+                    // SAFETY: PgList can never be passed by value, the borrow
+                    // checker will ensure the elements pointer hasn't been freed.
+                    // PG guarantees that any list has a length >= 1
+                    unsafe { std::slice::from_raw_parts(elements.as_ptr(), *length as _) }
+                        .iter()
+                        .copied(),
+                )
+            }
+            _ => None,
+        }
+    }
+
+    pub fn expect_int_list(&self) -> impl Iterator<Item = c_int> + ExactSizeIterator {
+        self.as_int_list()
+            .unwrap_or_else(|| panic!("Expected a int list, found {:?}", self))
+    }
 }
 
 #[cfg(feature = "field_offset_assertions")]

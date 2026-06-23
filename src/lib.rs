@@ -10,6 +10,7 @@ pub mod nodes;
 mod pg_error;
 #[allow(warnings)]
 pub mod raw;
+pub(crate) mod util;
 pub mod walk;
 
 pub use crate::error::{Error, Result};
