@@ -4,44 +4,70 @@ use std::ffi::c_void;
 use std::ops::ControlFlow;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
-/// Walks an AST tree, calling `f` for every node in the tree.
+/// Walks an AST tree, calling `f` for every node in the tree, including `node`
 pub fn walk<'a>(node: Node<'a>, mut f: impl FnMut(Node<'a>)) -> crate::Result {
-    walk_until::<()>(node, |n| {
+    walk_manual::<()>(node, |n| {
         f(n);
-        ControlFlow::Continue(())
+        ControlFlow::Continue(Recurse::Yes)
     })?;
     Ok(())
 }
 
-/// Walks an AST tree until ControlFlow::Break is received. Stops iteration at
-/// that point, and returns the given value, or None if the entire tree was
+/// Walks an AST tree, allowing the caller to manage the control flow.
+/// If ControlFlow::Continue is returned, the value will determine whether to
+/// recurse into the children of the current node or not.
+/// Upon receiving ControlFlow::Break, iteration will cease, and the callback
+/// will not be called again.
+///
+/// Returns the value of ControlFlow::Break, or None if the entire tree was
 /// walked.
-pub fn walk_until<'a, B>(
+pub fn walk_manual<'a, B>(
     node: Node<'a>,
-    mut finder: impl FnMut(Node<'a>) -> ControlFlow<B>,
+    mut finder: impl FnMut(Node<'a>) -> ControlFlow<B, Recurse>,
 ) -> crate::Result<Option<B>> {
     let mut result = None;
     walk_expression_tree(node, |node| {
         let res = finder(node);
-        result = res.break_value();
-        result.is_some()
+        res.map_break(|b| result = Some(b))
     })?;
     Ok(result)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Recurse {
+    Yes,
+    No,
+}
+
+impl Recurse {
+    pub fn recurse_if<T>(b: bool) -> ControlFlow<T, Self> {
+        ControlFlow::Continue(if b { Self::Yes } else { Self::No })
+    }
+
+    pub fn recurse_unless<T>(b: bool) -> ControlFlow<T, Self> {
+        Self::recurse_if(!b)
+    }
 }
 
 // FIXME(sage): Would the optimizer be able to do more if we generate our own
 // AST walk in Rust?
 fn walk_expression_tree<'a, F>(node: Node<'a>, mut cb: F) -> crate::Result
 where
-    F: FnMut(Node<'a>) -> bool,
+    F: FnMut(Node<'a>) -> ControlFlow<(), Recurse>,
 {
     let mut unwind_payload = None;
+    // Start by passing the node we're walking to the caller so they don't
+    // need to duplicate logic that they might want to apply to both a node
+    // and children of the same type.
+    if cb(node) != ControlFlow::Continue(Recurse::Yes) {
+        return Ok(());
+    };
     walk_expression_tree_inner::<'a>(node, |node| {
         match catch_unwind(AssertUnwindSafe(|| cb(node))) {
             Ok(result) => result,
             Err(e) => {
                 unwind_payload = Some(e);
-                true
+                ControlFlow::Break(())
             }
         }
     })?;
@@ -55,7 +81,7 @@ where
 
 fn walk_expression_tree_inner<'a, F>(node: Node<'a>, cb: F) -> crate::Result
 where
-    F: FnMut(Node<'a>) -> bool,
+    F: FnMut(Node<'a>) -> ControlFlow<(), Recurse>,
 {
     let mut fn_and_error = (cb, raw::Error::null());
     // SAFETY: Nothing holds a pointer to cb after this function returns.
@@ -78,7 +104,7 @@ where
 
 extern "C" fn walk_node_cb<'a, F>(node: *mut raw::Node, context: *mut c_void) -> bool
 where
-    F: FnMut(Node<'a>) -> bool,
+    F: FnMut(Node<'a>) -> ControlFlow<(), Recurse>,
 {
     // SAFETY: This function is only ever called with a pointer allocated in
     // walk_expression_tree
@@ -101,18 +127,21 @@ where
                 )
             }
         }
-        node => {
-            cb(node) ||
-            // SAFETY: Caller is responsible for making this safe
-            unsafe {
-                raw::wrapped_raw_expression_tree_walker_impl(
-                    node.as_ptr(),
-                    Some(walk_node_cb::<'a, F>),
-                    context,
-                    &raw mut *err,
-                )
+        node => match cb(node) {
+            ControlFlow::Break(()) => true,
+            ControlFlow::Continue(Recurse::Yes) => {
+                // SAFETY: Caller is responsible for making this safe
+                unsafe {
+                    raw::wrapped_raw_expression_tree_walker_impl(
+                        node.as_ptr(),
+                        Some(walk_node_cb::<'a, F>),
+                        context,
+                        &raw mut *err,
+                    )
+                }
             }
-        }
+            ControlFlow::Continue(Recurse::No) => false,
+        },
     }
 }
 
@@ -158,7 +187,7 @@ fn walking_unsupported_node_type_does_not_abort() {
     unsafe { raw::pg_query_init() };
     let raw_node = raw::Node { type_: u32::MAX };
     let node = Node::Invalid(&raw_node);
-    let res = walk(node, |_| panic!("should never be called"));
+    let res = walk(node, |_| ());
     assert!(
         res.unwrap_err()
             .to_string()
@@ -188,4 +217,43 @@ fn error_is_set_after_recursion() {
             .to_string()
             .contains("unrecognized node type"),
     );
+}
+
+#[test]
+fn walk_manual_allows_caller_to_determine_whether_to_recurse() {
+    unsafe { raw::pg_query_init() };
+    let query = "SELECT (SELECT 1), (SELECT (SELECT 2) FROM (VALUES (1))), (SELECT 3)";
+    let tree = crate::parse(query).unwrap();
+    let stmt = tree.stmts().next().unwrap();
+
+    let mut select_count = 0;
+    // Count select statements, but never recurse if there's a from clause
+    walk_manual::<()>(stmt, |node| match node {
+        Node::SelectStmt(s) => {
+            select_count += 1;
+            Recurse::recurse_unless(s.fromClause().len() > 0)
+        }
+        _ => ControlFlow::Continue(Recurse::Yes),
+    })
+    .unwrap();
+    assert_eq!(4, select_count);
+}
+
+#[test]
+fn walk_manual_can_return_value_and_halt_iteration() {
+    unsafe { raw::pg_query_init() };
+    let query = "SELECT 1, 2";
+    let tree = crate::parse(query).unwrap();
+    let stmt = tree.stmts().next().unwrap();
+
+    let res: Option<i32> = walk_manual(stmt, |node| match node {
+        Node::A_Const(c) => match c.val().and_then(|n| n.numeric_value()) {
+            Some(2) => panic!("Iteration should have aborted"),
+            Some(v) => ControlFlow::Break(v),
+            None => unreachable!(),
+        },
+        _ => ControlFlow::Continue(Recurse::Yes),
+    })
+    .unwrap();
+    assert_eq!(Some(1), res);
 }
