@@ -10,6 +10,11 @@ pub struct PgError {
     error_data: ErrorData,
 }
 
+// SAFETY: Data is immutable
+unsafe impl Send for PgError {}
+// SAFETY: Data is immutable
+unsafe impl Sync for PgError {}
+
 impl PgError {
     /// Returns None if the raw error is NULL
     pub(crate) fn from_raw(raw: raw::Error) -> Option<Self> {

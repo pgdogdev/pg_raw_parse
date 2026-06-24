@@ -27,6 +27,11 @@ impl Error {
 #[derive(Error)]
 pub struct CError(ptr::NonNull<raw::PgQueryError>);
 
+// SAFETY: Data is immutable
+unsafe impl Send for CError {}
+// SAFETY: Data is immutable
+unsafe impl Sync for CError {}
+
 impl fmt::Display for CError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // SAFETY: Any non-null pointer we got from PG here is a valid string
