@@ -344,7 +344,7 @@ fn generate_node_structs(
                         if self.isnull {
                             None
                         } else {
-                            Some(ConstValue(&self.val))
+                            Some(ConstValue::from_raw(&self.val))
                         }
                     }
                 });

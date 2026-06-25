@@ -99,7 +99,9 @@ fn test_debug_output() {
                 rexpr: A_Const(
                     A_Const {
                         val: Some(
-                            1,
+                            Integer(
+                                1,
+                            ),
                         ),
                         isnull: false,
                         ..
