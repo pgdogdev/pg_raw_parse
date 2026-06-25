@@ -24,7 +24,6 @@ pub fn walk<'a>(node: Node<'a>, mut f: impl FnMut(Node<'a>)) -> crate::Result {
 /// ## Examples
 ///
 /// ```
-/// use std::ops::ControlFlow;
 /// use pg_raw_parse::{Node, walk::{Recurse, walk_manual}};
 ///
 /// let query = "SELECT (SELECT 1), (SELECT (SELECT 2) FROM (VALUES (1))), (SELECT 3)";
@@ -38,7 +37,7 @@ pub fn walk<'a>(node: Node<'a>, mut f: impl FnMut(Node<'a>)) -> crate::Result {
 ///         select_count += 1;
 ///         Recurse::recurse_unless(s.fromClause().len() > 0)
 ///     }
-///     _ => ControlFlow::Continue(Recurse::Yes),
+///     _ => Recurse::yes(),
 /// })
 /// .unwrap();
 /// assert_eq!(3, select_count);
@@ -58,7 +57,7 @@ pub fn walk<'a>(node: Node<'a>, mut f: impl FnMut(Node<'a>)) -> crate::Result {
 ///         Some(v) => ControlFlow::Break(v),
 ///         None => unreachable!(),
 ///     },
-///     _ => ControlFlow::Continue(Recurse::Yes),
+///     _ => Recurse::yes(),
 /// })
 /// .unwrap();
 /// assert_eq!(Some(1), res);
@@ -82,8 +81,21 @@ pub enum Recurse {
 }
 
 impl Recurse {
+    /// Recurse into children of this node. You should return this by default
+    /// unless you're manually recursing into the current node
+    pub fn yes<T>() -> ControlFlow<T, Self> {
+        ControlFlow::Continue(Self::Yes)
+    }
+
+    /// Continue walking the tree, but do not recurse into the current node's
+    /// children. Return this if you're manually recursing or you simply want to
+    /// ignore nodes of a certain type
+    pub fn no<T>() -> ControlFlow<T, Self> {
+        ControlFlow::Continue(Self::No)
+    }
+
     pub fn recurse_if<T>(b: bool) -> ControlFlow<T, Self> {
-        ControlFlow::Continue(if b { Self::Yes } else { Self::No })
+        if b { Self::yes() } else { Self::no() }
     }
 
     pub fn recurse_unless<T>(b: bool) -> ControlFlow<T, Self> {
