@@ -6,6 +6,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
 /// Walks an AST tree, calling `f` for every node in the tree, including `node`
 pub fn walk<'a>(node: Node<'a>, mut f: impl FnMut(Node<'a>)) -> crate::Result {
+    f(node);
     walk_manual::<()>(node, |n| {
         f(n);
         ControlFlow::Continue(Recurse::Yes)
@@ -13,21 +14,62 @@ pub fn walk<'a>(node: Node<'a>, mut f: impl FnMut(Node<'a>)) -> crate::Result {
     Ok(())
 }
 
-/// Walks an AST tree, allowing the caller to manage the control flow.
-/// If ControlFlow::Continue is returned, the value will determine whether to
-/// recurse into the children of the current node or not.
+/// Calls `callback` for each child of this AST, allowing fine grained control
+/// over the control flow. If ControlFlow::Continue is returned, the value will
+/// determine whether to recurse into the children of the current node or not.
+///
 /// Upon receiving ControlFlow::Break, iteration will cease, and the callback
 /// will not be called again.
 ///
-/// Returns the value of ControlFlow::Break, or None if the entire tree was
-/// walked.
+/// ## Examples
+///
+/// ```
+/// use std::ops::ControlFlow;
+/// use pg_raw_parse::{Node, walk::{Recurse, walk_manual}};
+///
+/// let query = "SELECT (SELECT 1), (SELECT (SELECT 2) FROM (VALUES (1))), (SELECT 3)";
+/// let tree = pg_raw_parse::parse(query).unwrap();
+/// let stmt = tree.stmts().next().unwrap();
+///
+/// let mut select_count = 0;
+/// // Count select statements, but never recurse if there's a from clause
+/// walk_manual::<()>(stmt, |node| match node {
+///     Node::SelectStmt(s) => {
+///         select_count += 1;
+///         Recurse::recurse_unless(s.fromClause().len() > 0)
+///     }
+///     _ => ControlFlow::Continue(Recurse::Yes),
+/// })
+/// .unwrap();
+/// assert_eq!(3, select_count);
+/// ```
+///
+/// ```
+/// use std::ops::ControlFlow;
+/// use pg_raw_parse::{Node, walk::{Recurse, walk_manual}};
+///
+/// let query = "SELECT 1, 2";
+/// let tree = pg_raw_parse::parse(query).unwrap();
+/// let stmt = tree.stmts().next().unwrap();
+///
+/// let res: Option<i32> = walk_manual(stmt, |node| match node {
+///     Node::A_Const(c) => match c.val().and_then(|n| n.numeric_value()) {
+///         Some(2) => unreachable!(),
+///         Some(v) => ControlFlow::Break(v),
+///         None => unreachable!(),
+///     },
+///     _ => ControlFlow::Continue(Recurse::Yes),
+/// })
+/// .unwrap();
+/// assert_eq!(Some(1), res);
+/// ```
 pub fn walk_manual<'a, B>(
     node: Node<'a>,
-    mut finder: impl FnMut(Node<'a>) -> ControlFlow<B, Recurse>,
+    mut callback: impl FnMut(Node<'a>) -> ControlFlow<B, Recurse>,
 ) -> crate::Result<Option<B>> {
     let mut result = None;
     walk_expression_tree(node, |node| {
-        let res = finder(node);
+        let res = callback(node);
         res.map_break(|b| result = Some(b))
     })?;
     Ok(result)
@@ -56,12 +98,6 @@ where
     F: FnMut(Node<'a>) -> ControlFlow<(), Recurse>,
 {
     let mut unwind_payload = None;
-    // Start by passing the node we're walking to the caller so they don't
-    // need to duplicate logic that they might want to apply to both a node
-    // and children of the same type.
-    if cb(node) != ControlFlow::Continue(Recurse::Yes) {
-        return Ok(());
-    };
     walk_expression_tree_inner::<'a>(node, |node| {
         match catch_unwind(AssertUnwindSafe(|| cb(node))) {
             Ok(result) => result,
@@ -217,43 +253,4 @@ fn error_is_set_after_recursion() {
             .to_string()
             .contains("unrecognized node type"),
     );
-}
-
-#[test]
-fn walk_manual_allows_caller_to_determine_whether_to_recurse() {
-    unsafe { raw::pg_query_init() };
-    let query = "SELECT (SELECT 1), (SELECT (SELECT 2) FROM (VALUES (1))), (SELECT 3)";
-    let tree = crate::parse(query).unwrap();
-    let stmt = tree.stmts().next().unwrap();
-
-    let mut select_count = 0;
-    // Count select statements, but never recurse if there's a from clause
-    walk_manual::<()>(stmt, |node| match node {
-        Node::SelectStmt(s) => {
-            select_count += 1;
-            Recurse::recurse_unless(s.fromClause().len() > 0)
-        }
-        _ => ControlFlow::Continue(Recurse::Yes),
-    })
-    .unwrap();
-    assert_eq!(4, select_count);
-}
-
-#[test]
-fn walk_manual_can_return_value_and_halt_iteration() {
-    unsafe { raw::pg_query_init() };
-    let query = "SELECT 1, 2";
-    let tree = crate::parse(query).unwrap();
-    let stmt = tree.stmts().next().unwrap();
-
-    let res: Option<i32> = walk_manual(stmt, |node| match node {
-        Node::A_Const(c) => match c.val().and_then(|n| n.numeric_value()) {
-            Some(2) => panic!("Iteration should have aborted"),
-            Some(v) => ControlFlow::Break(v),
-            None => unreachable!(),
-        },
-        _ => ControlFlow::Continue(Recurse::Yes),
-    })
-    .unwrap();
-    assert_eq!(Some(1), res);
 }

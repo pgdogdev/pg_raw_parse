@@ -13,6 +13,7 @@ pub mod raw;
 pub(crate) mod util;
 pub mod walk;
 
+pub use crate::const_val::ConstValue;
 pub use crate::error::{Error, Result};
 pub use crate::list::PgList;
 pub use crate::node_enum::Node;
