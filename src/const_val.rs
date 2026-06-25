@@ -56,13 +56,18 @@ impl ConstValue<'_> {
 
 impl fmt::Debug for ConstValue<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.tag() {
-            NodeTag_T_Integer => write!(f, "{:?}", self.numeric_value::<i32>().unwrap()),
-            NodeTag_T_Float => write!(f, "{:?}", self.numeric_value::<f64>().unwrap()),
-            NodeTag_T_String => write!(f, "{:?}", self.str_value().unwrap()),
-            NodeTag_T_Boolean => write!(f, "{:?}", self.bool_value().unwrap()),
-            _ => write!(f, "{{unknown type}}"),
-        }
+        f.debug_tuple("ConstValue")
+            // SAFETY: We're checking the tag
+            .field(unsafe {
+                match self.tag() {
+                    NodeTag_T_Integer => self.0.ival.as_ref(),
+                    NodeTag_T_Float => self.0.fval.as_ref(),
+                    NodeTag_T_Boolean => self.0.boolval.as_ref(),
+                    NodeTag_T_String => self.0.sval.as_ref(),
+                    _ => return Ok(()),
+                }
+            })
+            .finish()
     }
 }
 

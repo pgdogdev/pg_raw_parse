@@ -52,6 +52,7 @@ fn main() {
         .blocklist_type("JsonTablePlan")
         // Yes, we want doc comments
         .clang_arg("-fparse-all-comments")
+        .derive_debug(false)
         .generate()
         .unwrap()
         // SAFETY: YOLO
@@ -213,12 +214,15 @@ fn generate_node_structs(
 
         let sname = &s.ident;
         let mut impl_: syn::ItemImpl = parse_quote!(impl #sname {});
+        let mut debug_expr: syn::Expr = parse_quote!(f.debug_struct(stringify!(#sname)));
 
         for field in s.fields.iter_mut() {
             clean_doc_comments(&mut field.attrs);
 
             let fname = &field.ident;
             let fattrs = &field.attrs;
+            let debug_kind;
+
             if field.ty == ty(parse_quote!(NodeTag))
                 || field.ty == ty(parse_quote!(Expr))
                 || field.ty == ty(parse_quote!(ValUnion))
@@ -235,7 +239,6 @@ fn generate_node_structs(
                 field.ty = parse_quote!(*mut Node);
             } else if field.ty == ty(parse_quote!(Expr)) {
                 field.ty = parse_quote!(NodeTag);
-                s.attrs.push(parse_quote!(#[derive(Debug)]));
             }
 
             if let syn::Type::Ptr(ty) = &field.ty
@@ -249,9 +252,8 @@ fn generate_node_structs(
                         unsafe { self.#fname.as_ref() }
                     }
                 });
-            }
-
-            if field.ty == ty(parse_quote!(*mut List)) {
+                debug_kind = DebugKind::Method;
+            } else if field.ty == ty(parse_quote!(*mut List)) {
                 let return_ty: syn::Type;
                 let mut list_expr: syn::Expr = parse_quote! {
                     // SAFETY: The lifetime is not longer than self
@@ -308,9 +310,8 @@ fn generate_node_structs(
                         crate::util::to_flat_iter(#list_expr)
                     }
                 });
-            }
-
-            if field.ty == ty(parse_quote!(*mut Node)) {
+                debug_kind = DebugKind::List;
+            } else if field.ty == ty(parse_quote!(*mut Node)) {
                 impl_.items.push(parse_quote! {
                     #(#fattrs)*
                     pub fn #fname(&self) -> crate::Node<'_> {
@@ -318,9 +319,8 @@ fn generate_node_structs(
                         unsafe { crate::Node::from_ptr(self.#fname) }
                     }
                 });
-            }
-
-            if is_c_string(&field.ty) {
+                debug_kind = DebugKind::Method;
+            } else if is_c_string(&field.ty) {
                 impl_.items.push(parse_quote! {
                     #(#fattrs)*
                     pub fn #fname(&self) -> Option<&str> {
@@ -335,10 +335,9 @@ fn generate_node_structs(
                             )
                         }
                     }
-                })
-            }
-
-            if field.ty == ty(parse_quote!(ValUnion)) {
+                });
+                debug_kind = DebugKind::Method;
+            } else if field.ty == ty(parse_quote!(ValUnion)) {
                 impl_.items.push(parse_quote! {
                     #(#fattrs)*
                     pub fn #fname(&self) -> Option<ConstValue<'_>> {
@@ -348,10 +347,35 @@ fn generate_node_structs(
                             Some(ConstValue(&self.val))
                         }
                     }
-                })
+                });
+                debug_kind = DebugKind::Method;
+            } else if field.ty == parse_quote!(NodeTag) || field.ty == parse_quote!(ParseLoc) {
+                debug_kind = DebugKind::Skip;
+            } else {
+                debug_kind = DebugKind::Field;
+            }
+
+            let debug_value: Option<syn::Expr> = match debug_kind {
+                DebugKind::Method => Some(parse_quote!(&self.#fname())),
+                DebugKind::List => Some(parse_quote!(&__DebugIterator(|| self.#fname()))),
+                DebugKind::Field => Some(parse_quote!(&self.#fname)),
+                DebugKind::Skip => None,
+            };
+
+            if let Some(debug_value) = debug_value {
+                debug_expr = parse_quote! {
+                    #debug_expr.field(stringify!(#fname), #debug_value)
+                };
             }
         }
 
+        out_file.items.push(parse_quote! {
+            impl fmt::Debug for #sname {
+                fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                    #debug_expr.finish_non_exhaustive()
+                }
+            }
+        });
         out_file.items.push(s.into());
         out_file.items.push(impl_.into());
     }
@@ -538,4 +562,11 @@ fn doc_comments<'a>(
 /// Type ascription for syn::Type
 fn ty(ty: syn::Type) -> syn::Type {
     ty
+}
+
+enum DebugKind {
+    Method,
+    List,
+    Field,
+    Skip,
 }
