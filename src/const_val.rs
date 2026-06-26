@@ -50,6 +50,7 @@ impl<'a> ConstValue<'a> {
     ///
     /// Returns None if this value is not a number, or if the value failed
     /// to parse into the given type.
+    #[inline]
     pub fn numeric_value<I: From<c_int> + FromStr>(&self) -> Option<I> {
         match self {
             Self::Integer(i) => Some((*i).into()),
@@ -61,6 +62,7 @@ impl<'a> ConstValue<'a> {
     /// Fetches the value of this boolean constant
     ///
     /// Returns None if this value is not a boolean
+    #[inline]
     pub fn bool_value(&self) -> Option<bool> {
         match self {
             Self::Boolean(b) => Some(*b),
@@ -71,6 +73,7 @@ impl<'a> ConstValue<'a> {
     /// Fetches the value of this string constant
     ///
     /// Returns None if this value is not a string
+    #[inline]
     pub fn string_value(&self) -> Option<&str> {
         match self {
             Self::String(s) => Some(s),
@@ -81,6 +84,7 @@ impl<'a> ConstValue<'a> {
     /// Fetches the value of this bitstring constant
     ///
     /// Returns None if this value is not a bistring
+    #[inline]
     pub fn bitstring_value(&self) -> Option<&str> {
         match self {
             Self::BitString(s) => Some(s),

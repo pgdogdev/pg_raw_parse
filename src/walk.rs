@@ -83,6 +83,7 @@ pub enum Recurse {
 impl Recurse {
     /// Recurse into children of this node. You should return this by default
     /// unless you're manually recursing into the current node
+    #[inline]
     pub fn yes<T>() -> ControlFlow<T, Self> {
         ControlFlow::Continue(Self::Yes)
     }
@@ -90,14 +91,17 @@ impl Recurse {
     /// Continue walking the tree, but do not recurse into the current node's
     /// children. Return this if you're manually recursing or you simply want to
     /// ignore nodes of a certain type
+    #[inline]
     pub fn no<T>() -> ControlFlow<T, Self> {
         ControlFlow::Continue(Self::No)
     }
 
+    #[inline]
     pub fn recurse_if<T>(b: bool) -> ControlFlow<T, Self> {
         if b { Self::yes() } else { Self::no() }
     }
 
+    #[inline]
     pub fn recurse_unless<T>(b: bool) -> ControlFlow<T, Self> {
         Self::recurse_if(!b)
     }

@@ -23,6 +23,7 @@ impl<'a> Node<'a> {
 
     /// Get the string value of self. Returns None if this is not a
     /// Node::String
+    #[inline]
     pub fn as_str(self) -> Option<&'a str> {
         match self {
             Node::String(s) => s.sval(),
