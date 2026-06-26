@@ -161,20 +161,6 @@ where
     let node = unsafe { Node::from_ptr(node) };
     match node {
         Node::None => false,
-        // PG can walk lists, but if a struct field is a list it just blindly
-        // passes it to the callback. Recurse back into PG rather than making
-        // the caller care
-        node @ Node::Invalid(n) if n.type_ == raw::NodeTag_T_List => {
-            // SAFETY: Caller is responsible for making this safe
-            unsafe {
-                raw::wrapped_raw_expression_tree_walker_impl(
-                    node.as_ptr(),
-                    Some(walk_node_cb::<'a, F>),
-                    context,
-                    &raw mut *err,
-                )
-            }
-        }
         node => match cb(node) {
             ControlFlow::Break(()) => true,
             ControlFlow::Continue(Recurse::Yes) => {

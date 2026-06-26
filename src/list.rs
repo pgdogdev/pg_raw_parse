@@ -1,160 +1,204 @@
 use crate::{Node, raw};
 use std::ffi::c_int;
+use std::iter::FusedIterator;
+use std::marker::PhantomData;
 use std::ptr::NonNull;
+use std::{fmt, slice};
 
-#[repr(u32)]
-#[derive(Debug)]
-pub enum PgList {
-    Node {
-        length: c_int,
-        _max: c_int,
-        elements: NonNull<*mut raw::Node>,
-    } = raw::NodeTag_T_List,
-    Int {
-        length: c_int,
-        _max: c_int,
-        elements: NonNull<c_int>,
-    } = raw::NodeTag_T_IntList,
-    Oid {
-        length: c_int,
-        _max: c_int,
-        elements: NonNull<raw::Oid>,
-    } = raw::NodeTag_T_OidList,
-    Xid {
-        length: c_int,
-        _max: c_int,
-        elements: NonNull<raw::TransactionId>,
-    } = raw::NodeTag_T_XidList,
-}
-
-impl PgList {
-    const VALID_TAGS: &[raw::NodeTag] = &[
-        raw::NodeTag_T_List,
-        raw::NodeTag_T_IntList,
-        raw::NodeTag_T_OidList,
-        raw::NodeTag_T_XidList,
-    ];
-
-    /// Creates a new PgList from a pointer to a List. Panics if type_ isn't
-    /// a valid discriminant. Returns None if the pointer is NULL
-    ///
-    /// SAFETY: The provided lifetime must not outlive the MemoryContext the
-    /// List was allocated in
-    pub(crate) unsafe fn from_ptr<'a>(ptr: *mut raw::List) -> Option<&'a Self> {
-        let ptr = NonNull::new(ptr);
-        ptr.map(|ptr| {
-            // SAFETY: We've excluded null pointers
-            let tag = unsafe { (*ptr.as_ptr()).type_ };
-            assert!(Self::VALID_TAGS.contains(&tag));
-            // SAFETY: We are asserting the validitiy of the tag.
-            unsafe { Self::from_ptr_unchecked(ptr) }
-        })
-    }
-
-    /// Creates a new PgList from a pointer to a List.
-    ///
-    /// SAFETY: The caller must ensure that type_ is a valid discriminant
-    pub(crate) unsafe fn from_ptr_unchecked<'a>(ptr: NonNull<raw::List>) -> &'a Self {
-        // SAFETY: PgList has a memory identical layout to List
-        unsafe { ptr.cast().as_ref() }
-    }
-
-    pub fn as_node_list(&self) -> Option<impl Iterator<Item = Node<'_>> + ExactSizeIterator> {
-        match self {
-            Self::Node {
-                length, elements, ..
-            } => {
-                Some(
-                    // SAFETY: PgList can never be passed by value, the borrow
-                    // checker will ensure the elements pointer hasn't been freed.
-                    // PG guarantees that any list has a length >= 1
-                    unsafe { std::slice::from_raw_parts(elements.as_ptr(), *length as _) }
-                        .iter()
-                        // SAFETY: The lifetime given is the lifetime of self
-                        .map(|&p| unsafe { Node::from_ptr(p) }),
-                )
-            }
-            _ => None,
-        }
-    }
-
-    pub fn expect_node_list(&self) -> impl Iterator<Item = Node<'_>> + ExactSizeIterator {
-        self.as_node_list()
-            .unwrap_or_else(|| panic!("Expected a node list, found {:?}", self))
-    }
-
-    pub fn as_oid_list(&self) -> Option<impl Iterator<Item = raw::Oid> + ExactSizeIterator> {
-        match self {
-            Self::Oid {
-                length, elements, ..
-            } => {
-                Some(
-                    // SAFETY: PgList can never be passed by value, the borrow
-                    // checker will ensure the elements pointer hasn't been freed.
-                    // PG guarantees that any list has a length >= 1
-                    unsafe { std::slice::from_raw_parts(elements.as_ptr(), *length as _) }
-                        .iter()
-                        .copied(),
-                )
-            }
-            _ => None,
-        }
-    }
-
-    pub fn expect_oid_list(&self) -> impl Iterator<Item = raw::Oid> + ExactSizeIterator {
-        self.as_oid_list()
-            .unwrap_or_else(|| panic!("Expected a oid list, found {:?}", self))
-    }
-
-    pub fn as_int_list(&self) -> Option<impl Iterator<Item = c_int> + ExactSizeIterator> {
-        match self {
-            Self::Int {
-                length, elements, ..
-            } => {
-                Some(
-                    // SAFETY: PgList can never be passed by value, the borrow
-                    // checker will ensure the elements pointer hasn't been freed.
-                    // PG guarantees that any list has a length >= 1
-                    unsafe { std::slice::from_raw_parts(elements.as_ptr(), *length as _) }
-                        .iter()
-                        .copied(),
-                )
-            }
-            _ => None,
-        }
-    }
-
-    pub fn expect_int_list(&self) -> impl Iterator<Item = c_int> + ExactSizeIterator {
-        self.as_int_list()
-            .unwrap_or_else(|| panic!("Expected a int list, found {:?}", self))
-    }
-}
-
-#[cfg(feature = "field_offset_assertions")]
-const _: () = {
-    use std::mem;
-    ["Offset of Node.length"]
-        [mem::offset_of!(PgList, Node.length) - mem::offset_of!(raw::List, length)];
-    ["Offset of Node._max"]
-        [mem::offset_of!(PgList, Node._max) - mem::offset_of!(raw::List, max_length)];
-    ["Offset of Node.elements"]
-        [mem::offset_of!(PgList, Node.elements) - mem::offset_of!(raw::List, elements)];
-    ["Offset of Int.length"]
-        [mem::offset_of!(PgList, Int.length) - mem::offset_of!(raw::List, length)];
-    ["Offset of Int._max"]
-        [mem::offset_of!(PgList, Int._max) - mem::offset_of!(raw::List, max_length)];
-    ["Offset of Int.elements"]
-        [mem::offset_of!(PgList, Int.elements) - mem::offset_of!(raw::List, elements)];
-    ["Offset of Oid.length"]
-        [mem::offset_of!(PgList, Oid.length) - mem::offset_of!(raw::List, length)];
-    ["Offset of Oid._max"]
-        [mem::offset_of!(PgList, Oid._max) - mem::offset_of!(raw::List, max_length)];
-    ["Offset of Oid.elements"]
-        [mem::offset_of!(PgList, Oid.elements) - mem::offset_of!(raw::List, elements)];
-    ["Offset of Xid.length"]
-        [mem::offset_of!(PgList, Xid.length) - mem::offset_of!(raw::List, length)];
-    ["Offset of Xid._max"]
-        [mem::offset_of!(PgList, Xid._max) - mem::offset_of!(raw::List, max_length)];
-    ["Offset of Xid.elements"]
-        [mem::offset_of!(PgList, Xid.elements) - mem::offset_of!(raw::List, elements)];
+pub(crate) const EMPTY_LIST: NodeList = NodeList {
+    _type: raw::NodeTag_T_List,
+    length: 0,
+    _max: 0,
+    elements: NonNull::dangling(),
 };
+
+#[repr(C)]
+pub struct NodeList {
+    _type: raw::NodeTag,
+    length: c_int,
+    _max: c_int,
+    elements: NonNull<*mut raw::Node>,
+}
+
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    use std::mem::{align_of, offset_of, size_of};
+
+    ["Size of NodeList"][size_of::<NodeList>() - size_of::<raw::List>()];
+    ["Alignment of NodeList"][align_of::<NodeList>() - align_of::<raw::List>()];
+    ["Offset of field: NodeList::type_"]
+        [offset_of!(NodeList, _type) - offset_of!(raw::List, type_)];
+    ["Offset of field: NodeList::length"]
+        [offset_of!(NodeList, length) - offset_of!(raw::List, length)];
+    ["Offset of field: NodeList::max_length"]
+        [offset_of!(NodeList, _max) - offset_of!(raw::List, max_length)];
+    ["Offset of field: NodeList::elements"]
+        [offset_of!(NodeList, elements) - offset_of!(raw::List, elements)];
+};
+
+impl NodeList {
+    fn as_slice(&self) -> &[*mut raw::Node] {
+        // SAFETY: PG guarantees that any non-null list pointer has a length > 1
+        unsafe { slice::from_raw_parts(self.elements.as_ptr(), self.len()) }
+    }
+
+    /// Casts this list to a specific node type. The returned iterator will
+    /// panic if it encounters an unexpected node
+    pub(crate) fn cast<T>(&self) -> &CastNodeList<T> {
+        // SAFETY: CastNodeList is #[repr(transparent)] over NodeList
+        unsafe { &*(&raw const *self).cast() }
+    }
+
+    #[inline]
+    pub fn iter(&self) -> <&Self as IntoIterator>::IntoIter {
+        self.into_iter()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.length as usize
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl<'a> IntoIterator for &'a NodeList {
+    type IntoIter = NodeListIter<'a>;
+    type Item = <Self::IntoIter as Iterator>::Item;
+
+    fn into_iter(self) -> Self::IntoIter {
+        // SAFETY: NodeList is not Copy, and has no public fields. The only safe
+        // way to get a reference to this struct is through [Node], which has
+        // enforced the lifetime requirements
+        NodeListIter {
+            iter: self.as_slice().iter(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl fmt::Debug for NodeList {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(self).finish()
+    }
+}
+
+#[must_use = "iterators are lazy and do nothing unless consumed"]
+pub struct NodeListIter<'a, T = Node<'a>> {
+    iter: slice::Iter<'a, *mut raw::Node>,
+    _marker: PhantomData<T>,
+}
+
+impl<'a, T> NodeListIter<'a, T> {
+    /// SAFETY: 'a must outlive the lifetime of the node
+    unsafe fn convert_node(ptr: *mut raw::Node) -> T
+    where
+        T: TryFrom<Node<'a>>,
+        T::Error: fmt::Debug,
+    {
+        use std::any::type_name;
+        // SAFETY: 'a will always outlive the memory context of the node
+        let node = unsafe { Node::from_ptr(ptr) };
+        T::try_from(node).unwrap_or_else(|e| panic!("Expected a {}, got {:?}", type_name::<T>(), e))
+    }
+
+    /// Casts the list to a specific node type
+    fn cast<U>(self) -> NodeListIter<'a, U> {
+        NodeListIter {
+            iter: self.iter,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<'a, T> Iterator for NodeListIter<'a, T>
+where
+    T: TryFrom<Node<'a>>,
+    T::Error: fmt::Debug,
+{
+    type Item = T;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        // SAFETY: 'a always outlives the Node
+        self.iter.next().map(|p| unsafe { Self::convert_node(*p) })
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+
+    #[inline]
+    fn count(self) -> usize {
+        self.iter.count()
+    }
+}
+
+impl<'a, T> FusedIterator for NodeListIter<'a, T> where Self: Iterator {}
+
+impl<'a, T> DoubleEndedIterator for NodeListIter<'a, T>
+where
+    T: TryFrom<Node<'a>>,
+    T::Error: fmt::Debug,
+{
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        // SAFETY: 'a always outlives the Node
+        self.iter
+            .next_back()
+            .map(|p| unsafe { Self::convert_node(*p) })
+    }
+}
+
+impl<'a, T> ExactSizeIterator for NodeListIter<'a, T>
+where
+    Self: Iterator,
+{
+    #[inline(always)]
+    fn len(&self) -> usize {
+        self.iter.len()
+    }
+}
+
+#[repr(transparent)]
+pub struct CastNodeList<T> {
+    list: NodeList,
+    _marker: PhantomData<T>,
+}
+
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    use crate::nodes::String;
+    use std::mem::{align_of, size_of}; // For example
+
+    ["Size of NodeList"][size_of::<CastNodeList<&String>>() - size_of::<raw::List>()];
+    ["Alignment of NodeList"][align_of::<CastNodeList<&String>>() - align_of::<raw::List>()];
+};
+
+impl<'a, T> IntoIterator for &'a CastNodeList<T>
+where
+    NodeListIter<'a, T>: Iterator,
+{
+    type IntoIter = NodeListIter<'a, T>;
+    type Item = <Self::IntoIter as Iterator>::Item;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.list.iter().cast()
+    }
+}
+
+impl<'a, T> fmt::Debug for &'a CastNodeList<T>
+where
+    Self: IntoIterator,
+    <Self as IntoIterator>::Item: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(*self).finish()
+    }
+}

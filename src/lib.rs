@@ -10,12 +10,10 @@ pub mod nodes;
 mod pg_error;
 #[allow(warnings)]
 pub mod raw;
-pub(crate) mod util;
 pub mod walk;
 
 pub use crate::const_val::ConstValue;
 pub use crate::error::{Error, Result};
-pub use crate::list::PgList;
 pub use crate::node_enum::Node;
 
 pub fn parse(sql: &str) -> Result<ParseResult, error::Error> {
@@ -60,9 +58,9 @@ impl ParseResult {
     pub fn stmts(&self) -> impl Iterator<Item = Node<'_>> {
         // SAFETY: The memory context of the tree is guaranteed to outlive
         // the lifetime of self. We are returning a lifetime shorter than self.
-        unsafe { PgList::from_ptr(self.tree.tree) }
+        unsafe { Node::from_ptr(self.tree.tree.cast()) }
+            .expect_node_list()
             .into_iter()
-            .flat_map(PgList::expect_node_list)
             .map(|n| match n {
                 Node::RawStmt(stmt) => stmt.stmt(),
                 n => n,

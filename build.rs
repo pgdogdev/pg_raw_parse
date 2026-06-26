@@ -220,7 +220,8 @@ fn generate_node_structs(
             clean_doc_comments(&mut field.attrs);
 
             let fname = &field.ident;
-            let fattrs = &field.attrs;
+            let mut fattrs = field.attrs.clone();
+            fattrs.push(parse_quote!(#[inline]));
             let debug_kind;
 
             if field.ty == ty(parse_quote!(NodeTag))
@@ -257,10 +258,10 @@ fn generate_node_structs(
                 let return_ty: syn::Type;
                 let mut list_expr: syn::Expr = parse_quote! {
                     // SAFETY: The lifetime is not longer than self
-                    unsafe { crate::PgList::from_ptr(self.#fname) }
+                    unsafe { crate::Node::from_ptr(self.#fname.cast()) }
                 };
 
-                let doc_comments = doc_comments(fattrs)
+                let doc_comments = doc_comments(&fattrs)
                     .map(|doc| doc.value())
                     .collect::<Vec<_>>();
                 let doc_comments_lower = doc_comments
@@ -268,49 +269,41 @@ fn generate_node_structs(
                     .flat_map(|doc| doc.lines())
                     .map(|doc| doc.trim().to_lowercase());
 
-                // We assume any list that isn't a list of nodes will have a
-                // comment that indicates it's an OID or int list. We expect
-                // to never receive an xid list from the parser
+                // We assume that parse trees never care about OID, int, or xid
+                // lists, so just treat them as plain nodes
                 if doc_comments_lower
                     .clone()
                     .any(|doc| doc.starts_with("oid list"))
                 {
-                    return_ty = parse_quote!(crate::raw::Oid);
-                    list_expr = parse_quote!(#list_expr.map(|l| l.expect_oid_list()));
+                    return_ty = parse_quote!(crate::Node<'_>);
+                    debug_kind = DebugKind::Skip;
                 } else if doc_comments_lower
                     .clone()
                     .any(|doc| doc.starts_with("int list") || doc.starts_with("integer list"))
                 {
-                    return_ty = parse_quote!(std::ffi::c_int);
-                    list_expr = parse_quote!(#list_expr.map(|l| l.expect_int_list()));
+                    return_ty = parse_quote!(crate::Node<'_>);
+                    debug_kind = DebugKind::Skip;
                 } else if let Some(captures) = doc_comments
                     .iter()
                     .find_map(|doc| type_comment_regex.captures(&doc))
                 {
                     let type_name = &captures[1];
                     let ident = syn::Ident::new(type_name, field.ty.span());
-                    return_ty = parse_quote!(&#ident);
-                    list_expr = parse_quote! {
-                        #list_expr.map(|l| {
-                            l.expect_node_list()
-                                .map(|n| match n {
-                                    crate::Node::#ident(n) => n,
-                                    _ => panic!("Expected {}, found {:?}", #type_name, n),
-                                })
-                        })
-                    };
+                    return_ty = parse_quote!(&crate::list::CastNodeList<&#ident>);
+                    list_expr = parse_quote!(#list_expr.expect_node_list().cast());
+                    debug_kind = DebugKind::Method;
                 } else {
-                    return_ty = parse_quote!(crate::Node<'_>);
-                    list_expr = parse_quote!(#list_expr.map(|l| l.expect_node_list()));
+                    return_ty = parse_quote!(&crate::list::NodeList);
+                    list_expr = parse_quote!(#list_expr.expect_node_list());
+                    debug_kind = DebugKind::Method;
                 }
 
                 impl_.items.push(parse_quote! {
                     #(#fattrs)*
-                    pub fn #fname(&self) -> impl Iterator<Item = #return_ty> + ExactSizeIterator {
-                        crate::util::to_flat_iter(#list_expr)
+                    pub fn #fname(&self) -> #return_ty {
+                        #list_expr
                     }
                 });
-                debug_kind = DebugKind::List;
             } else if field.ty == ty(parse_quote!(*mut Node)) {
                 impl_.items.push(parse_quote! {
                     #(#fattrs)*
@@ -357,7 +350,6 @@ fn generate_node_structs(
 
             let debug_value: Option<syn::Expr> = match debug_kind {
                 DebugKind::Method => Some(parse_quote!(&self.#fname())),
-                DebugKind::List => Some(parse_quote!(&__DebugIterator(|| self.#fname()))),
                 DebugKind::Field => Some(parse_quote!(&self.#fname)),
                 DebugKind::Skip => None,
             };
@@ -376,6 +368,20 @@ fn generate_node_structs(
                 }
             }
         });
+
+        out_file.items.push(parse_quote! {
+            impl<'a> TryFrom<crate::Node<'a>> for &'a #sname {
+                type Error = crate::Node<'a>;
+
+                fn try_from(node: crate::Node<'a>) -> Result<Self, Self::Error> {
+                    match node {
+                        crate::Node::#sname(n) => Ok(n),
+                        n => Err(n),
+                    }
+                }
+            }
+        });
+
         out_file.items.push(s.into());
         out_file.items.push(impl_.into());
     }
@@ -411,11 +417,12 @@ fn generate_node_enum(
         #[derive(Debug, Clone, Copy)]
         pub enum Node<'a> {
             /// A null pointer to a node
-            None,
+            None = 0,
+            NodeList(&'a crate::list::NodeList) = raw::NodeTag_T_List,
+            #(#enum_variants,)*
             /// A pointer to a node that wasn't part of a parse tree, or that
             /// pg_raw_parse doesn't know how to generate code for.
             Invalid(&'a raw::Node),
-            #(#enum_variants,)*
         }
     });
 
@@ -431,9 +438,11 @@ fn generate_node_enum(
                     let tag = p.type_;
                     match tag {
                         #(#node_tags => {
-                            // SAFTEY: PG ensures structs are correctly tagged
-                            Self::#node_structs(unsafe {&*(p as *const _ as *const _)})
+                            // SAFETY: We're checking the tag
+                            Self::#node_structs(unsafe { &*ptr.cast_const().cast() })
                         })*
+                        // SAFETY: We're checking the tag
+                        raw::NodeTag_T_List => Self::NodeList(unsafe { &*ptr.cast_const().cast() }),
                         _ => Self::Invalid(p),
                     }
                 }).unwrap_or(Self::None)
@@ -443,6 +452,7 @@ fn generate_node_enum(
                 match *self {
                     Self::None => std::ptr::null_mut(),
                     Self::Invalid(p) => (&raw const *p).cast_mut(),
+                    Self::NodeList(p) => (&raw const *p).cast_mut().cast(),
                     #(Self::#node_structs(p) => (&raw const *p).cast_mut().cast(),)*
                 }
             }
@@ -566,7 +576,6 @@ fn ty(ty: syn::Type) -> syn::Type {
 
 enum DebugKind {
     Method,
-    List,
     Field,
     Skip,
 }

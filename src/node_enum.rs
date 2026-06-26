@@ -1,20 +1,24 @@
-use crate::{nodes, raw};
+use crate::{list, nodes, raw};
 
 include!(concat!(env!("OUT_DIR"), "/node_enum_raw.rs"));
 
 impl<'a> Node<'a> {
-    /// Convert self into a Node list. Returns None if this is not a list node.
-    pub fn as_list(&self) -> Option<impl Iterator<Item = Node<'a>> + ExactSizeIterator + use<'a>> {
-        use std::ptr::NonNull;
-
+    /// Get the node list value of self. Returns None if self is not a NodeList
+    #[inline]
+    pub fn as_node_list(&self) -> Option<&'a list::NodeList> {
         match self {
-            Node::Invalid(n) if n.type_ == raw::NodeTag_T_List => {
-                let ptr = NonNull::from_ref(*n).cast();
-                // SAFETY: We've checked the tag
-                unsafe { crate::PgList::from_ptr_unchecked(ptr) }.as_node_list()
-            }
+            // Empty lists are represented as null pointers
+            Self::None => Some(&list::EMPTY_LIST),
+            Self::NodeList(l) => Some(l),
             _ => None,
         }
+    }
+
+    /// Get the node list value of self. Panics if self is not a NodeList
+    #[inline]
+    pub fn expect_node_list(&self) -> &'a list::NodeList {
+        self.as_node_list()
+            .unwrap_or_else(|| panic!("Expected a node list, found {:?}", self))
     }
 
     /// Get the string value of self. Returns None if this is not a
@@ -42,6 +46,6 @@ fn test_node_as_list() {
         initial_elements: raw::__IncompleteArrayField::new(),
     };
     let node = unsafe { Node::from_ptr(&raw mut list as _) };
-    let actual = node.as_list().unwrap().collect::<Vec<_>>();
+    let actual = node.expect_node_list().into_iter().collect::<Vec<_>>();
     std::assert_matches!(actual[..], [Node::Integer(nodes::Integer { ival: 1, .. })]);
 }

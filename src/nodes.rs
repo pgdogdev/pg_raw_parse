@@ -3,25 +3,14 @@ use crate::const_val::ConstValue;
 use crate::raw::{__IncompleteArrayField, List, Node, ValUnion};
 use std::fmt;
 
+pub use crate::raw::{A_Expr_Kind, BoolExprType};
+
 include!(concat!(env!("OUT_DIR"), "/nodes_raw.rs"));
 
 impl Bitmapset {
     pub fn words(&self) -> &[bitmapword] {
         // SAFETY: words is always nwords long
         unsafe { self.words.as_slice(self.nwords as _) }
-    }
-}
-
-struct __DebugIterator<F>(F);
-
-impl<F, I> fmt::Debug for __DebugIterator<F>
-where
-    F: Fn() -> I,
-    I: IntoIterator,
-    I::Item: fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_list().entries(self.0()).finish()
     }
 }
 
