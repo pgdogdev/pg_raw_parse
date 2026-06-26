@@ -16,6 +16,15 @@ impl<'a> Node<'a> {
             _ => None,
         }
     }
+
+    /// Get the string value of self. Returns None if this is not a
+    /// Node::String
+    pub fn as_str(self) -> Option<&'a str> {
+        match self {
+            Node::String(s) => s.sval(),
+            _ => None,
+        }
+    }
 }
 
 #[test]
