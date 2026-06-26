@@ -59,7 +59,7 @@ fn test_debug_output() {
         ],
         whereClause: A_Expr(
             A_Expr {
-                kind: 0,
+                kind: AEXPR_OP,
                 name: [
                     String(
                         String {
@@ -117,5 +117,5 @@ fn test_debug_output() {
         ..
     },
 )"#;
-    assert_eq!(expected, format!("{:#?}", stmt));
+    pretty_assertions::assert_eq!(expected, format!("{:#?}", stmt));
 }

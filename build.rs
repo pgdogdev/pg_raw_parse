@@ -36,6 +36,8 @@ fn main() {
                 .unwrap(),
         )
         .derive_copy(false)
+        .rustified_non_exhaustive_enum("A_Expr_Kind")
+        .rustified_non_exhaustive_enum("BoolExprType")
         .clang_arg(format!("-I{}", build_dir.join("include").display()))
         .clang_arg(format!("-I{}", c_dir.display()))
         .clang_arg(format!(
