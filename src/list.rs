@@ -166,6 +166,25 @@ where
     }
 }
 
+impl<'a, T> fmt::Debug for NodeListIter<'a, T>
+where
+    Self: IntoIterator,
+    <Self as IntoIterator>::Item: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(self.clone()).finish()
+    }
+}
+
+impl<'a, T> Clone for NodeListIter<'a, T> {
+    fn clone(&self) -> Self {
+        Self {
+            iter: self.iter.clone(),
+            _marker: PhantomData,
+        }
+    }
+}
+
 #[repr(transparent)]
 pub struct CastNodeList<T> {
     list: NodeList,
