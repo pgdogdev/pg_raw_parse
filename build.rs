@@ -84,6 +84,8 @@ fn main() {
             bindgen::Abi::CUnwind,
             "wrapped_raw_expression_tree_walker_impl",
         )
+        .allowlist_item("StringInfo")
+        .allowlist_item("wrapped_raw_deparse")
         .wrap_static_fns(true)
         .wrap_static_fns_path(out_dir.join("wrap_static_fns"));
     for struct_name in &node_structs {

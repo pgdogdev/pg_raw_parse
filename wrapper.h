@@ -21,3 +21,15 @@ static inline bool wrapped_raw_expression_tree_walker_impl(Node *n, tree_walker_
   PG_END_TRY();
   return result;
 }
+
+static inline StringInfo wrapped_raw_deparse(RawStmt *stmt, ErrorData **error) {
+  StringInfo str;
+  PG_TRY();
+    str = makeStringInfo();
+    deparseRawStmt(str, stmt);
+  PG_CATCH();
+    *error = CopyErrorData();
+    FlushErrorState();
+  PG_END_TRY();
+  return str;
+}

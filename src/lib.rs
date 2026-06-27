@@ -2,6 +2,7 @@
 use std::{ffi, fmt, ptr};
 
 pub mod const_val;
+mod deparse;
 pub mod error;
 pub mod list;
 mod mem;
@@ -13,6 +14,7 @@ pub mod raw;
 pub mod walk;
 
 pub use crate::const_val::ConstValue;
+pub use crate::deparse::{DeparseResult, deparse};
 pub use crate::error::{Error, Result};
 pub use crate::node_enum::Node;
 
@@ -53,18 +55,18 @@ unsafe impl Send for ParseResult {}
 unsafe impl Sync for ParseResult {}
 
 impl ParseResult {
-    /// Returns the list of statements received, panics if the list was a
-    /// type other than Node
+    /// Returns the statements that were parsed
     pub fn stmts(&self) -> impl Iterator<Item = Node<'_>> {
+        self.raw_stmts().into_iter().map(|s| s.stmt())
+    }
+
+    /// Returns the raw statements that were parsed
+    pub fn raw_stmts(&self) -> &list::CastNodeList<&nodes::RawStmt> {
         // SAFETY: The memory context of the tree is guaranteed to outlive
         // the lifetime of self. We are returning a lifetime shorter than self.
         unsafe { Node::from_ptr(self.tree.tree.cast()) }
             .expect_node_list()
-            .into_iter()
-            .map(|n| match n {
-                Node::RawStmt(stmt) => stmt.stmt(),
-                n => n,
-            })
+            .cast()
     }
 }
 

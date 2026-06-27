@@ -16,6 +16,12 @@ unsafe impl Send for PgError {}
 unsafe impl Sync for PgError {}
 
 impl PgError {
+    pub(crate) fn new(mem: MemoryContext, error_data: NonNull<raw::ErrorData>) -> Self {
+        Self {
+            _mem: mem,
+            error_data: ErrorData(error_data),
+        }
+    }
     /// Returns None if the raw error is NULL
     pub(crate) fn from_raw(raw: raw::Error) -> Option<Self> {
         NonNull::new(raw.error_data).map(|error_data| {

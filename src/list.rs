@@ -65,6 +65,11 @@ impl NodeList {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    #[inline]
+    pub fn first(&self) -> Option<<&Self as IntoIterator>::Item> {
+        self.into_iter().next()
+    }
 }
 
 impl<'a> IntoIterator for &'a NodeList {
@@ -189,6 +194,36 @@ impl<'a, T> Clone for NodeListIter<'a, T> {
 pub struct CastNodeList<T> {
     list: NodeList,
     _marker: PhantomData<T>,
+}
+
+impl<T> CastNodeList<T> {
+    #[inline]
+    pub fn iter<'a>(&'a self) -> <&'a Self as IntoIterator>::IntoIter
+    where
+        &'a Self: IntoIterator,
+    {
+        self.into_iter()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.list.length as usize
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.list.len() == 0
+    }
+
+    #[inline]
+    pub fn first<'a>(&'a self) -> Option<<&'a Self as IntoIterator>::Item>
+    where
+        &'a Self: IntoIterator,
+    {
+        self.into_iter().next()
+    }
 }
 
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
