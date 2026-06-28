@@ -366,6 +366,17 @@ fn generate_node_structs(
         let sattrs = &s.attrs;
         let sname = &s.name;
 
+        for f in &s.fields {
+            if let NodeFieldType::CastNode(t) = &f.ty
+                && !local_struct_types.contains(t)
+            {
+                panic!(
+                    "{sname}.{} is a pointer to {t:?}, which is not a Node. It needs special handling",
+                    f.name
+                )
+            }
+        }
+
         let fattrs = s.fields.iter().map(|f| &f.attrs);
         let fvis = s.fields.iter().map(|f| f.vis());
         let fnames = s.fields.iter().map(|f| &f.name);
@@ -409,6 +420,7 @@ fn generate_node_structs(
             }
         });
     }
+
     std::fs::write(path, prettyplease::unparse(&out_file))?;
     Ok(node_structs)
 }
