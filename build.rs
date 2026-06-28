@@ -89,7 +89,7 @@ fn main() {
         .wrap_static_fns(true)
         .wrap_static_fns_path(out_dir.join("wrap_static_fns"));
     for struct_name in &node_structs {
-        bindgen = bindgen.blocklist_item(struct_name.to_string());
+        bindgen = bindgen.blocklist_item(struct_name.name.to_string());
     }
     bindgen
         .generate()
@@ -122,12 +122,162 @@ fn main() {
         .compile("pg_raw_parse");
 }
 
+struct NodeStruct {
+    attrs: Vec<syn::Attribute>,
+    name: syn::Ident,
+    fields: Vec<NodeField>,
+}
+
+impl NodeStruct {
+    fn tag_expr(&self) -> syn::Expr {
+        let tag_name = syn::Ident::new(&format!("NodeTag_T_{}", &self.name), self.name.span());
+        parse_quote!(raw::#tag_name)
+    }
+}
+
+struct NodeField {
+    attrs: Vec<syn::Attribute>,
+    name: syn::Ident,
+    ty: NodeFieldType,
+}
+
+impl NodeField {
+    fn vis(&self) -> syn::Visibility {
+        if let NodeFieldType::Primitive(_) = &self.ty {
+            parse_quote!(pub)
+        } else {
+            parse_quote!(pub(crate))
+        }
+    }
+
+    fn accessor_method(&self) -> Option<syn::ImplItem> {
+        use NodeFieldType::*;
+
+        let fattrs = &self.attrs;
+        let fname = &self.name;
+        match &self.ty {
+            Private(_) | Primitive(_) => None,
+
+            Node => Some(parse_quote! {
+                #(#fattrs)*
+                #[inline]
+                pub fn #fname(&self) -> crate::Node<'_> {
+                    // SAFETY: The lifetime is not longer than self
+                    unsafe { crate::Node::from_ptr(self.#fname) }
+                }
+            }),
+
+            CastNode(ty) => Some(parse_quote! {
+                #(#fattrs)*
+                #[inline]
+                pub fn #fname(&self) -> Option<&#ty> {
+                    // SAFETY: Pointer will always be valid or NULL
+                    unsafe { self.#fname.as_ref() }
+                }
+            }),
+
+            List => Some(parse_quote! {
+                #(#fattrs)*
+                #[inline]
+                pub fn #fname(&self) -> &crate::list::NodeList {
+                    // SAFETY: The lifetime is not longer than self
+                    unsafe { crate::Node::from_ptr(self.#fname.cast()) }
+                        .expect_node_list()
+                }
+            }),
+
+            CastList(ty) => Some(parse_quote! {
+                #(#fattrs)*
+                #[inline]
+                pub fn #fname(&self) -> &crate::list::CastNodeList<&#ty> {
+                    // SAFETY: The lifetime is not longer than self
+                    unsafe { crate::Node::from_ptr(self.#fname.cast()) }
+                        .expect_node_list()
+                        .cast()
+                }
+            }),
+
+            CString => Some(parse_quote! {
+                #(#fattrs)*
+                #[inline]
+                pub fn #fname(&self) -> Option<&str> {
+                    if self.#fname.is_null() {
+                        None
+                    } else {
+                        // SAFETY: PG will always give us a valid string or NULL
+                        Some(
+                            unsafe { std::ffi::CStr::from_ptr(self.#fname) }
+                                .to_str()
+                                .expect("Parsing is always done in UTF-8"),
+                        )
+                    }
+                }
+            }),
+
+            ConstVal => Some(parse_quote! {
+                #(#fattrs)*
+                #[inline]
+                pub fn #fname(&self) -> Option<ConstValue<'_>> {
+                    if self.isnull {
+                        None
+                    } else {
+                        Some(ConstValue::from_raw(&self.val))
+                    }
+                }
+            }),
+        }
+    }
+
+    fn debug_expr(&self, debug_expr: syn::Expr) -> syn::Expr {
+        use NodeFieldType::*;
+
+        let fname = &self.name;
+        let value_expr: syn::Expr = match &self.ty {
+            Primitive(_) => parse_quote!(&self.#fname),
+            Node | CastNode(_) | List | CastList(_) | CString | ConstVal => {
+                parse_quote!(&self.#fname())
+            }
+            Private(_) => return debug_expr,
+        };
+
+        parse_quote!(#debug_expr.field(stringify!(#fname), #value_expr))
+    }
+
+    fn ty(&self) -> syn::Type {
+        self.ty.ty()
+    }
+}
+
+enum NodeFieldType {
+    Private(syn::Type),
+    Node,
+    CastNode(syn::Type),
+    List,
+    CastList(syn::Type),
+    CString,
+    ConstVal,
+    Primitive(syn::Type),
+}
+
+impl NodeFieldType {
+    fn ty(&self) -> syn::Type {
+        match self {
+            Self::Private(t) | Self::Primitive(t) => t.clone(),
+            Self::Node => parse_quote!(*mut Node),
+            Self::CastNode(t) => parse_quote!(*mut #t),
+            Self::List | Self::CastList(_) => parse_quote!(*mut List),
+            Self::CString => parse_quote!(*mut std::ffi::c_char),
+            Self::ConstVal => parse_quote!(ValUnion),
+        }
+    }
+}
+
 /// Generates the structs for each node and writes them to the given path.
 /// Returns a list of the struct names generated
 fn generate_node_structs(
     bindings: &str,
     path: &Path,
-) -> Result<Vec<syn::Ident>, Box<dyn std::error::Error>> {
+) -> Result<Vec<NodeStruct>, Box<dyn std::error::Error>> {
     let file = syn::parse_file(bindings)?;
     let mut out_file = syn::File {
         shebang: None,
@@ -147,7 +297,7 @@ fn generate_node_structs(
         use crate::raw::{#(#type_aliases_to_import,)*};
     });
 
-    let node_structs = file
+    let raw_node_structs = file
         .items
         .iter()
         .filter_map(|item| match item {
@@ -164,24 +314,22 @@ fn generate_node_structs(
                 Some(syn::Field {
                     ty: typ,
                     ..
-                }) if *typ == ty(parse_quote!(NodeTag))
-                    || *typ == ty(parse_quote!(Expr))
+                }) if *typ == parse_quote!(NodeTag)
+                    || *typ == parse_quote!(Expr)
             )
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    let local_struct_names: Vec<_> = node_structs.iter().map(|s| s.ident.clone()).collect();
-    let local_struct_types: Vec<syn::Type> = local_struct_names
-        .iter()
-        .map(|i| parse_quote!(#i))
-        .collect();
+        });
+    let local_struct_names = raw_node_structs.clone().map(|s| &s.ident);
     let struct_name_regex = local_struct_names
-        .iter()
+        .clone()
         .rev()
         .map(|s| s.to_string())
         .collect::<Vec<_>>()
         .join("|");
     let type_comment_regex = Regex::new(&format!("[lL]ist \\(?of (#{struct_name_regex})")).unwrap();
+
+    let node_structs = raw_node_structs
+        .map(|s| build_node_struct(s, &type_comment_regex))
+        .collect::<Vec<_>>();
 
     struct ReferencesLocalStruct<'a> {
         local_structs: &'a [syn::Type],
@@ -197,6 +345,7 @@ fn generate_node_structs(
         }
     }
 
+    let local_struct_types: Vec<syn::Type> = local_struct_names.map(|i| parse_quote!(#i)).collect();
     let references_local_struct = |c| {
         let mut visitor = ReferencesLocalStruct {
             local_structs: &local_struct_types,
@@ -213,158 +362,32 @@ fn generate_node_structs(
     });
     out_file.items.extend(safety_consts);
 
-    for mut s in node_structs {
-        clean_doc_comments(&mut s.attrs);
+    for s in &node_structs {
+        let sattrs = &s.attrs;
+        let sname = &s.name;
 
-        let sname = &s.ident;
-        let mut impl_: syn::ItemImpl = parse_quote!(impl #sname {});
-        let mut debug_expr: syn::Expr = parse_quote!(f.debug_struct(stringify!(#sname)));
-
-        for field in s.fields.iter_mut() {
-            clean_doc_comments(&mut field.attrs);
-
-            let fname = &field.ident;
-            let mut fattrs = field.attrs.clone();
-            fattrs.push(parse_quote!(#[inline]));
-            let debug_kind;
-
-            if field.ty == ty(parse_quote!(NodeTag))
-                || field.ty == ty(parse_quote!(Expr))
-                || field.ty == ty(parse_quote!(ValUnion))
-                || is_flexible_array_ty(&field.ty)
-                || matches!(field.ty, syn::Type::Ptr(_))
-            {
-                field.vis = parse_quote!(pub(crate));
+        let fattrs = s.fields.iter().map(|f| &f.attrs);
+        let fvis = s.fields.iter().map(|f| f.vis());
+        let fnames = s.fields.iter().map(|f| &f.name);
+        let ftys = s.fields.iter().map(|f| f.ty());
+        out_file.items.push(parse_quote! {
+            #(#sattrs)*
+            pub struct #sname {
+                #(#(#fattrs)* #fvis #fnames: #ftys,)*
             }
+        });
 
-            // Expr* is just Node* with a different name for documentation
-            // purposes, but not consistently enough to justify treating it
-            // differently
-            if field.ty == ty(parse_quote!(*mut Expr)) {
-                field.ty = parse_quote!(*mut Node);
-            } else if field.ty == ty(parse_quote!(Expr)) {
-                field.ty = parse_quote!(NodeTag);
+        let accessors = s.fields.iter().filter_map(|f| f.accessor_method());
+        out_file.items.push(parse_quote! {
+            impl #sname {
+                #(#accessors)*
             }
+        });
 
-            if let syn::Type::Ptr(ty) = &field.ty
-                && local_struct_types.contains(&ty.elem)
-            {
-                let inner_ty = &ty.elem;
-                impl_.items.push(parse_quote! {
-                    #(#fattrs)*
-                    pub fn #fname(&self) -> Option<&#inner_ty> {
-                        // SAFETY: Pointer will always be valid or NULL
-                        unsafe { self.#fname.as_ref() }
-                    }
-                });
-                debug_kind = DebugKind::Method;
-            } else if field.ty == ty(parse_quote!(*mut List)) {
-                let return_ty: syn::Type;
-                let mut list_expr: syn::Expr = parse_quote! {
-                    // SAFETY: The lifetime is not longer than self
-                    unsafe { crate::Node::from_ptr(self.#fname.cast()) }
-                };
-
-                let doc_comments = doc_comments(&fattrs)
-                    .map(|doc| doc.value())
-                    .collect::<Vec<_>>();
-                let doc_comments_lower = doc_comments
-                    .iter()
-                    .flat_map(|doc| doc.lines())
-                    .map(|doc| doc.trim().to_lowercase());
-
-                // We assume that parse trees never care about OID, int, or xid
-                // lists, so just treat them as plain nodes
-                if doc_comments_lower
-                    .clone()
-                    .any(|doc| doc.starts_with("oid list"))
-                {
-                    return_ty = parse_quote!(crate::Node<'_>);
-                    debug_kind = DebugKind::Skip;
-                } else if doc_comments_lower
-                    .clone()
-                    .any(|doc| doc.starts_with("int list") || doc.starts_with("integer list"))
-                {
-                    return_ty = parse_quote!(crate::Node<'_>);
-                    debug_kind = DebugKind::Skip;
-                } else if let Some(captures) = doc_comments
-                    .iter()
-                    .find_map(|doc| type_comment_regex.captures(&doc))
-                {
-                    let type_name = &captures[1];
-                    let ident = syn::Ident::new(type_name, field.ty.span());
-                    return_ty = parse_quote!(&crate::list::CastNodeList<&#ident>);
-                    list_expr = parse_quote!(#list_expr.expect_node_list().cast());
-                    debug_kind = DebugKind::Method;
-                } else {
-                    return_ty = parse_quote!(&crate::list::NodeList);
-                    list_expr = parse_quote!(#list_expr.expect_node_list());
-                    debug_kind = DebugKind::Method;
-                }
-
-                impl_.items.push(parse_quote! {
-                    #(#fattrs)*
-                    pub fn #fname(&self) -> #return_ty {
-                        #list_expr
-                    }
-                });
-            } else if field.ty == ty(parse_quote!(*mut Node)) {
-                impl_.items.push(parse_quote! {
-                    #(#fattrs)*
-                    pub fn #fname(&self) -> crate::Node<'_> {
-                        // SAFETY: The lifetime is not longer than self
-                        unsafe { crate::Node::from_ptr(self.#fname) }
-                    }
-                });
-                debug_kind = DebugKind::Method;
-            } else if is_c_string(&field.ty) {
-                impl_.items.push(parse_quote! {
-                    #(#fattrs)*
-                    pub fn #fname(&self) -> Option<&str> {
-                        if self.#fname.is_null() {
-                            None
-                        } else {
-                            // SAFETY: PG will always give us a valid string or NULL
-                            Some(
-                                unsafe { std::ffi::CStr::from_ptr(self.#fname) }
-                                    .to_str()
-                                    .expect("Parsing is always done in UTF-8"),
-                            )
-                        }
-                    }
-                });
-                debug_kind = DebugKind::Method;
-            } else if field.ty == ty(parse_quote!(ValUnion)) {
-                impl_.items.push(parse_quote! {
-                    #(#fattrs)*
-                    pub fn #fname(&self) -> Option<ConstValue<'_>> {
-                        if self.isnull {
-                            None
-                        } else {
-                            Some(ConstValue::from_raw(&self.val))
-                        }
-                    }
-                });
-                debug_kind = DebugKind::Method;
-            } else if field.ty == parse_quote!(NodeTag) || field.ty == parse_quote!(ParseLoc) {
-                debug_kind = DebugKind::Skip;
-            } else {
-                debug_kind = DebugKind::Field;
-            }
-
-            let debug_value: Option<syn::Expr> = match debug_kind {
-                DebugKind::Method => Some(parse_quote!(&self.#fname())),
-                DebugKind::Field => Some(parse_quote!(&self.#fname)),
-                DebugKind::Skip => None,
-            };
-
-            if let Some(debug_value) = debug_value {
-                debug_expr = parse_quote! {
-                    #debug_expr.field(stringify!(#fname), #debug_value)
-                };
-            }
-        }
-
+        let debug_expr = s.fields.iter().fold(
+            parse_quote!(f.debug_struct(stringify!(#sname))),
+            |expr, field| field.debug_expr(expr),
+        );
         out_file.items.push(parse_quote! {
             impl fmt::Debug for #sname {
                 fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -385,16 +408,13 @@ fn generate_node_structs(
                 }
             }
         });
-
-        out_file.items.push(s.into());
-        out_file.items.push(impl_.into());
     }
     std::fs::write(path, prettyplease::unparse(&out_file))?;
-    Ok(local_struct_names)
+    Ok(node_structs)
 }
 
 fn generate_node_enum(
-    node_structs: &[syn::Ident],
+    node_structs: &[NodeStruct],
     path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut out_file = syn::File {
@@ -403,15 +423,12 @@ fn generate_node_enum(
         items: Vec::new(),
     };
 
-    let node_tags: Vec<syn::Expr> = node_structs
+    let node_names = node_structs.iter().map(|s| &s.name).collect::<Vec<_>>();
+    let node_tags = node_structs
         .iter()
-        .map(|i| {
-            let tag_name = syn::Ident::new(&format!("NodeTag_T_{i}"), i.span());
-            parse_quote!(raw::#tag_name)
-        })
-        .collect();
-
-    let enum_variants = node_structs
+        .map(|s| s.tag_expr())
+        .collect::<Vec<_>>();
+    let enum_variants = node_names
         .iter()
         .zip(&node_tags)
         .map::<syn::Variant, _>(|(i, tag)| parse_quote!(#i(&'a nodes::#i) = #tag));
@@ -443,7 +460,7 @@ fn generate_node_enum(
                     match tag {
                         #(#node_tags => {
                             // SAFETY: We're checking the tag
-                            Self::#node_structs(unsafe { &*ptr.cast_const().cast() })
+                            Self::#node_names(unsafe { &*ptr.cast_const().cast() })
                         })*
                         // SAFETY: We're checking the tag
                         raw::NodeTag_T_List => Self::NodeList(unsafe { &*ptr.cast_const().cast() }),
@@ -457,7 +474,7 @@ fn generate_node_enum(
                     Self::None => std::ptr::null_mut(),
                     Self::Invalid(p) => (&raw const *p).cast_mut(),
                     Self::NodeList(p) => (&raw const *p).cast_mut().cast(),
-                    #(Self::#node_structs(p) => (&raw const *p).cast_mut().cast(),)*
+                    #(Self::#node_names(p) => (&raw const *p).cast_mut().cast(),)*
                 }
             }
         }
@@ -510,45 +527,30 @@ fn is_primitive_alias(alias: &syn::ItemType) -> bool {
 /// Escape any square brackets (they aren't intended as links)
 /// Trim any leading whitespace (it isn't intended as a Rust code block)
 /// Remove any lines that are entirely - and * (they aren't intended as headers)
-fn clean_doc_comments(attrs: &mut [syn::Attribute]) {
-    use syn::LitStr;
-    for s in doc_comments_mut(attrs) {
-        let docstr = s
-            .value()
-            .replace("<", "\\<")
-            .replace(">", "\\>")
-            .replace("[", "\\[")
-            .replace("]", "\\]")
-            .lines()
-            .map(|l| l.trim())
-            .filter(|l| l.is_empty() || !l.chars().all(|c| c == '-'))
-            .collect::<Vec<_>>()
-            .join("\n")
-            .replace("*/\n/*", "\n");
-        *s = LitStr::new(&format!(" {docstr}"), s.span());
-    }
-}
-
-/// Returns an iterator of pointers to the LitStr value of any doc comment
-/// attributes that exist in the list
-fn doc_comments_mut<'a>(
-    attrs: impl IntoIterator<Item = &'a mut syn::Attribute>,
-) -> impl Iterator<Item = &'a mut syn::LitStr> {
-    use syn::{Expr, ExprLit, Lit, Meta};
-
+fn clean_doc_comments(attrs: &[syn::Attribute]) -> Vec<syn::Attribute> {
     attrs
-        .into_iter()
-        .filter_map(|attr| match &mut attr.meta {
-            Meta::NameValue(name_value) => Some(name_value),
-            _ => None,
+        .iter()
+        .map(|a| {
+            if let Some(s) = doc_comment(a) {
+                let docstr = s
+                    .value()
+                    .replace("<", "\\<")
+                    .replace(">", "\\>")
+                    .replace("[", "\\[")
+                    .replace("]", "\\]")
+                    .lines()
+                    .map(|l| l.trim())
+                    .filter(|l| l.is_empty() || !l.chars().all(|c| c == '-'))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+                    .replace("*/\n/*", "\n");
+                let s = syn::LitStr::new(&format!(" {docstr}"), s.span());
+                parse_quote!(#[doc = #s])
+            } else {
+                a.clone()
+            }
         })
-        .filter(|nv| nv.path == parse_quote!(doc))
-        .filter_map(|nv| match &mut nv.value {
-            Expr::Lit(ExprLit {
-                lit: Lit::Str(s), ..
-            }) => Some(s),
-            _ => None,
-        })
+        .collect()
 }
 
 /// Returns an iterator of pointers to the LitStr value of any doc comment
@@ -556,30 +558,94 @@ fn doc_comments_mut<'a>(
 fn doc_comments<'a>(
     attrs: impl IntoIterator<Item = &'a syn::Attribute>,
 ) -> impl Iterator<Item = &'a syn::LitStr> {
+    attrs.into_iter().filter_map(doc_comment)
+}
+
+fn doc_comment(attr: &syn::Attribute) -> Option<&syn::LitStr> {
     use syn::{Expr, ExprLit, Lit, Meta};
-
-    attrs
-        .into_iter()
-        .filter_map(|attr| match &attr.meta {
-            Meta::NameValue(name_value) => Some(name_value),
-            _ => None,
-        })
-        .filter(|nv| nv.path == parse_quote!(doc))
-        .filter_map(|nv| match &nv.value {
-            Expr::Lit(ExprLit {
-                lit: Lit::Str(s), ..
-            }) => Some(s),
-            _ => None,
-        })
+    if let Meta::NameValue(nv) = &attr.meta
+        && let Some(path) = nv.path.get_ident()
+        && path == "doc"
+        && let Expr::Lit(ExprLit {
+            lit: Lit::Str(s), ..
+        }) = &nv.value
+    {
+        Some(s)
+    } else {
+        None
+    }
 }
 
-/// Type ascription for syn::Type
-fn ty(ty: syn::Type) -> syn::Type {
-    ty
+fn build_node_struct(s: &syn::ItemStruct, type_comment_regex: &Regex) -> NodeStruct {
+    let attrs = clean_doc_comments(&s.attrs);
+    let name = s.ident.clone();
+    let fields = s
+        .fields
+        .iter()
+        .map(|f| {
+            let attrs = clean_doc_comments(&f.attrs);
+            let name = f.ident.clone().expect("C doesn't have unnamed fields");
+            let ty = determine_field_ty(&f, type_comment_regex);
+            NodeField { attrs, name, ty }
+        })
+        .collect();
+    NodeStruct {
+        attrs,
+        name,
+        fields,
+    }
 }
 
-enum DebugKind {
-    Method,
-    Field,
-    Skip,
+fn determine_field_ty(field: &syn::Field, comment_regex: &Regex) -> NodeFieldType {
+    if field.ty == parse_quote!(*mut Node) || field.ty == parse_quote!(*mut Expr) {
+        NodeFieldType::Node
+    } else if field.ty == parse_quote!(Expr) || field.ty == parse_quote!(NodeTag) {
+        NodeFieldType::Private(parse_quote!(NodeTag))
+    } else if field.ty == parse_quote!(*mut List) {
+        determine_list_field_ty(field, comment_regex)
+    } else if is_c_string(&field.ty) {
+        NodeFieldType::CString
+    } else if field.ty == parse_quote!(ValUnion) {
+        NodeFieldType::ConstVal
+    } else if let syn::Type::Ptr(ty) = &field.ty {
+        // At this point any pointers we haven't yet matched should just be
+        // specific types of nodes
+        NodeFieldType::CastNode((*ty.elem).clone())
+    } else if field.ty == parse_quote!(ParseLoc) || is_flexible_array_ty(&field.ty) {
+        NodeFieldType::Private(field.ty.clone())
+    } else {
+        NodeFieldType::Primitive(field.ty.clone())
+    }
+}
+
+fn determine_list_field_ty(field: &syn::Field, comment_regex: &Regex) -> NodeFieldType {
+    let doc_comments = doc_comments(&field.attrs)
+        .map(|doc| doc.value())
+        .collect::<Vec<_>>();
+    let mut doc_comments_lower = doc_comments
+        .iter()
+        .flat_map(|doc| doc.lines())
+        .map(|doc| doc.trim().to_lowercase());
+
+    if doc_comments_lower.any(|doc| {
+        doc.starts_with("oid list")
+            || doc.starts_with("int list")
+            || doc.starts_with("integer list")
+    }) {
+        // We assume that parse trees never care about OID, int, or xid
+        // lists, so just treat them as plain nodes
+        NodeFieldType::Private(field.ty.clone())
+    } else if let Some(captures) = doc_comments
+        .iter()
+        .find_map(|doc| comment_regex.captures(&doc))
+    {
+        // We found a comment containing "list of NodeType". Assume the
+        // comment isn't lying, cast the list to NodeType
+        let type_name = &captures[1];
+        let ident = syn::Ident::new(type_name, field.ty.span().clone());
+        NodeFieldType::CastList(parse_quote!(#ident))
+    } else {
+        // Polymorphic list or list without adequate documentation
+        NodeFieldType::List
+    }
 }
