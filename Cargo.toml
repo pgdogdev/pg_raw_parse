@@ -9,6 +9,7 @@ edition = "2024"
 field_offset_assertions = []
 
 [dependencies]
+generativity = "1.2.1"
 libc = "0.2.186"
 thiserror = "2.0.18"
 

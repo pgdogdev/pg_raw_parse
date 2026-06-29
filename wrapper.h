@@ -3,6 +3,7 @@
 #include "src/pg_query_internal.h"
 #include "nodes/parsenodes.h"
 #include "nodes/nodeFuncs.h"
+#include "nodes/makefuncs.h"
 #include "utils/palloc.h"
 #include "utils/memutils.h"
 #include "copy_pg_error.h"
@@ -32,4 +33,20 @@ static inline StringInfo wrapped_raw_deparse(RawStmt *stmt, ErrorData **error) {
     FlushErrorState();
   PG_END_TRY();
   return str;
+}
+
+// FIXME(sage): libpg_query doesn't compile pnstrdup, which we want
+static inline
+char *
+wrapped_pnstrdup(const char *in, Size len)
+{
+  char *out;
+
+  len = strnlen(in, len);
+
+  out = palloc(len + 1);
+  memcpy(out, in, len);
+  out[len] = '\0';
+
+  return out;
 }

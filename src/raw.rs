@@ -1,6 +1,7 @@
 //! Functions in this module should never be called unless they have been
 //! manually wrapped *IN C* with `PG_TRY()` and `PG_CATCH()`. PG errors use
 //! `longjmp`, and jumping over any Rust frames is undefined behavior.
+#![allow(warnings)]
 
 use crate::nodes::*;
 
@@ -51,11 +52,21 @@ fn test_raw_node_bindings_arent_generated() {
         .collect::<Vec<_>>();
     node_structs.sort();
 
-    // We need the raw binding to Node for tag checking, List and
-    // MemoryContextData are both their own thing, Expr is just an alias for
-    // Node
+    // These are the nodes that we either have special handling for, or have
+    // explicitly blocklisted because they aren't parse nodes and handling
+    // them would require extra code
     assert_eq!(
         node_structs,
-        &["Expr", "JsonTablePlan", "List", "MemoryContextData", "Node"]
+        &[
+            "Const",             // A_Const is the parsed version
+            "Expr",              // Abstract type
+            "JsonTablePath",     // JsonTablePathSpec is the parsed version
+            "JsonTablePlan",     // JsonTablePlanSpec is the parsed version
+            "List",              // list::NodeList
+            "MemoryContextData", // mem::MemoryContext
+            "Node",              // node_enum::Node
+            "RelabelType",       // Implicit coercion, never parsed
+            "Var",               // Used during optimization, not parsing
+        ],
     );
 }

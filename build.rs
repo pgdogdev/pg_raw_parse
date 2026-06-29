@@ -48,10 +48,14 @@ fn main() {
     let mut node_bindings = String::new();
     bindgen
         .clone()
-        // This is another name for Node
+        // Exclude Node types that aren't parse nodes and would require
+        // additional logic to support
+        .blocklist_type("Const")
         .blocklist_type("Expr")
-        // This is yet another name for Node
+        .blocklist_type("JsonTablePath")
         .blocklist_type("JsonTablePlan")
+        .blocklist_type("RelabelType")
+        .blocklist_type("Var")
         // Yes, we want doc comments
         .clang_arg("-fparse-all-comments")
         .derive_debug(false)
@@ -60,9 +64,37 @@ fn main() {
         // SAFETY: YOLO
         .write(Box::new(unsafe { node_bindings.as_mut_vec() }))
         .unwrap();
+
     let node_structs =
         generate_node_structs(&node_bindings, &out_dir.join("nodes_raw.rs")).unwrap();
     generate_node_enum(&node_structs, &out_dir.join("node_enum_raw.rs")).unwrap();
+
+    let mut makefunc_bindings = String::new();
+    bindgen
+        .clone()
+        .allowlist_file(
+            c_dir
+                .join("src/postgres/include/nodes/makefuncs.h")
+                .to_str()
+                .unwrap(),
+        )
+        .allowlist_file(
+            c_dir
+                .join("src/postgres/include/nodes/value.h")
+                .to_str()
+                .unwrap(),
+        )
+        .blocklist_item("makeDefElemExtended") // This type has multiple makefuncs
+        .blocklist_item("makeColumnDef") // Has more logic than we want
+        .blocklist_item("makeTypeNameFromOid") // Parser doesn't know OIDs
+        .blocklist_item("makeTypeName") // We map to the list form, not unqualified
+        .blocklist_item("makeSimpleA_Expr") // We map to the list form, not unqualified
+        .generate()
+        .unwrap()
+        // SAFETY: YOLO
+        .write(Box::new(unsafe { makefunc_bindings.as_mut_vec() }))
+        .unwrap();
+    let make_funcs = generate_make_funcs(&makefunc_bindings, &node_structs, &out_dir).unwrap();
 
     let mut bindgen = bindgen
         .allowlist_item("Node")
@@ -86,10 +118,15 @@ fn main() {
         )
         .allowlist_item("StringInfo")
         .allowlist_item("wrapped_raw_deparse")
+        .allowlist_item("wrapped_pnstrdup")
+        .allowlist_item("list_copy")
         .wrap_static_fns(true)
         .wrap_static_fns_path(out_dir.join("wrap_static_fns"));
     for struct_name in &node_structs {
         bindgen = bindgen.blocklist_item(struct_name.name.to_string());
+    }
+    for make_func_name in &make_funcs {
+        bindgen = bindgen.allowlist_item(make_func_name);
     }
     bindgen
         .generate()
@@ -146,7 +183,7 @@ impl NodeField {
         if let NodeFieldType::Primitive(_) = &self.ty {
             parse_quote!(pub)
         } else {
-            parse_quote!(pub(crate))
+            syn::Visibility::Inherited
         }
     }
 
@@ -155,22 +192,23 @@ impl NodeField {
 
         let fattrs = &self.attrs;
         let fname = &self.name;
+        let ret = self.ty(&parse_quote!('_));
         match &self.ty {
             Private(_) | Primitive(_) => None,
 
             Node => Some(parse_quote! {
                 #(#fattrs)*
                 #[inline]
-                pub fn #fname(&self) -> crate::Node<'_> {
+                pub fn #fname(&self) -> #ret {
                     // SAFETY: The lifetime is not longer than self
                     unsafe { crate::Node::from_ptr(self.#fname) }
                 }
             }),
 
-            CastNode(ty) => Some(parse_quote! {
+            CastNode(_) => Some(parse_quote! {
                 #(#fattrs)*
                 #[inline]
-                pub fn #fname(&self) -> Option<&#ty> {
+                pub fn #fname(&self) -> #ret {
                     // SAFETY: Pointer will always be valid or NULL
                     unsafe { self.#fname.as_ref() }
                 }
@@ -179,17 +217,17 @@ impl NodeField {
             List => Some(parse_quote! {
                 #(#fattrs)*
                 #[inline]
-                pub fn #fname(&self) -> &crate::list::NodeList {
+                pub fn #fname(&self) -> #ret {
                     // SAFETY: The lifetime is not longer than self
                     unsafe { crate::Node::from_ptr(self.#fname.cast()) }
                         .expect_node_list()
                 }
             }),
 
-            CastList(ty) => Some(parse_quote! {
+            CastList(_) => Some(parse_quote! {
                 #(#fattrs)*
                 #[inline]
-                pub fn #fname(&self) -> &crate::list::CastNodeList<&#ty> {
+                pub fn #fname(&self) -> #ret {
                     // SAFETY: The lifetime is not longer than self
                     unsafe { crate::Node::from_ptr(self.#fname.cast()) }
                         .expect_node_list()
@@ -200,7 +238,7 @@ impl NodeField {
             CString => Some(parse_quote! {
                 #(#fattrs)*
                 #[inline]
-                pub fn #fname(&self) -> Option<&str> {
+                pub fn #fname(&self) -> #ret {
                     if self.#fname.is_null() {
                         None
                     } else {
@@ -217,7 +255,7 @@ impl NodeField {
             ConstVal => Some(parse_quote! {
                 #(#fattrs)*
                 #[inline]
-                pub fn #fname(&self) -> Option<ConstValue<'_>> {
+                pub fn #fname(&self) -> #ret {
                     if self.isnull {
                         None
                     } else {
@@ -243,8 +281,34 @@ impl NodeField {
         parse_quote!(#debug_expr.field(stringify!(#fname), #value_expr))
     }
 
-    fn ty(&self) -> syn::Type {
-        self.ty.ty()
+    fn raw_ty(&self) -> syn::Type {
+        self.ty.raw_ty()
+    }
+
+    fn ty(&self, lifetime: &syn::Lifetime) -> syn::Type {
+        self.ty.ty(lifetime)
+    }
+
+    fn constructor_ty(&self, lifetime: &syn::Lifetime) -> syn::Type {
+        self.ty.constructor_ty(lifetime)
+    }
+
+    fn as_raw_expr(&self) -> syn::Expr {
+        use NodeFieldType::*;
+
+        let fname = &self.name;
+        match self.ty {
+            Private(_) | Primitive(_) => parse_quote!(#fname),
+            Node | CastNode(_) | List | CastList(_) => parse_quote!(#fname.into_ptr().cast()),
+            CString => parse_quote! {
+                #fname
+                    .map(|s| raw::wrapped_pnstrdup(s.as_ptr().cast(), s.len()))
+                    .unwrap_or(ptr::null_mut())
+            },
+            ConstVal => parse_quote!(compile_error!(
+                "PG has no functions that take ValUnion by value"
+            )),
+        }
     }
 }
 
@@ -260,7 +324,7 @@ enum NodeFieldType {
 }
 
 impl NodeFieldType {
-    fn ty(&self) -> syn::Type {
+    fn raw_ty(&self) -> syn::Type {
         match self {
             Self::Private(t) | Self::Primitive(t) => t.clone(),
             Self::Node => parse_quote!(*mut Node),
@@ -268,6 +332,33 @@ impl NodeFieldType {
             Self::List | Self::CastList(_) => parse_quote!(*mut List),
             Self::CString => parse_quote!(*mut std::ffi::c_char),
             Self::ConstVal => parse_quote!(ValUnion),
+        }
+    }
+
+    fn ty(&self, lifetime: &syn::Lifetime) -> syn::Type {
+        match self {
+            Self::Private(t) | Self::Primitive(t) => t.clone(),
+            Self::Node => parse_quote!(crate::Node<#lifetime>),
+            Self::CastNode(t) => parse_quote!(Option<&#lifetime crate::nodes::#t>),
+            Self::List => parse_quote!(&#lifetime crate::list::NodeList),
+            Self::CastList(t) => parse_quote!(&#lifetime crate::list::CastNodeList<&#lifetime #t>),
+            Self::CString => parse_quote!(Option<&#lifetime str>),
+            Self::ConstVal => parse_quote!(Option<crate::const_val::ConstValue<#lifetime>>),
+        }
+    }
+
+    fn constructor_ty(&self, lifetime: &syn::Lifetime) -> syn::Type {
+        match self {
+            Self::Private(t) | Self::Primitive(t) => t.clone(),
+            Self::Node => parse_quote!(Unique<#lifetime, raw::Node>),
+            Self::CastNode(t) => parse_quote!(Unique<#lifetime, crate::nodes::#t>),
+            Self::List => parse_quote!(Unique<#lifetime, crate::list::NodeList>),
+            Self::CastList(t) => {
+                parse_quote!(Unique<#lifetime, crate::list::CastNodeList<&#lifetime #t>>)
+            }
+            // Strings get copied in constructors so we can ignore the input LT
+            Self::CString => parse_quote!(Option<&str>),
+            Self::ConstVal => parse_quote!(Option<crate::const_val::ConstValue<#lifetime>>),
         }
     }
 }
@@ -380,7 +471,7 @@ fn generate_node_structs(
         let fattrs = s.fields.iter().map(|f| &f.attrs);
         let fvis = s.fields.iter().map(|f| f.vis());
         let fnames = s.fields.iter().map(|f| &f.name);
-        let ftys = s.fields.iter().map(|f| f.ty());
+        let ftys = s.fields.iter().map(|f| f.raw_ty());
         out_file.items.push(parse_quote! {
             #(#sattrs)*
             pub struct #sname {
@@ -464,7 +555,7 @@ fn generate_node_enum(
             /// SAFETY: The caller is responsible for ensuring the provided
             /// lifetime does not outlast the memory context this Node was
             /// allocated in
-            pub(crate) unsafe fn from_ptr(ptr: *mut raw::Node) -> Self {
+            pub unsafe fn from_ptr(ptr: *mut raw::Node) -> Self {
                 // SAFETY: PG will never return an invalid Node other than NULL
                 // and the caller is ensuring a valid lifetime
                 unsafe { ptr.as_ref() }.map(|p| {
@@ -494,6 +585,132 @@ fn generate_node_enum(
 
     std::fs::write(path, prettyplease::unparse(&out_file))?;
     Ok(())
+}
+
+/// Returns the function names needed in `raw`
+fn generate_make_funcs(
+    bindings: &str,
+    node_structs: &[NodeStruct],
+    out_dir: &Path,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let file = syn::parse_file(bindings)?;
+    let mut out_file = syn::File {
+        shebang: None,
+        attrs: Vec::new(),
+        items: Vec::new(),
+    };
+
+    let makefuncs = file
+        .items
+        .into_iter()
+        .flat_map(|i| match i {
+            syn::Item::ForeignMod(f) => f.items,
+            _ => Vec::new(),
+        })
+        .filter_map(|i| match i {
+            syn::ForeignItem::Fn(f) => Some(f),
+            _ => None,
+        })
+        .filter_map(|f| {
+            if f.sig.ident.to_string().starts_with("make")
+                && let syn::ReturnType::Type(_, t) = &f.sig.output
+                && let syn::Type::Ptr(t) = &**t
+                && let syn::Type::Path(syn::TypePath { path, .. }) = &*t.elem
+                && let Some(s) = node_structs
+                    .iter()
+                    .find(|s| path.get_ident() == Some(&s.name))
+            {
+                Some((s, f))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    for (node, makefunc) in &makefuncs {
+        let lt = parse_quote!('a);
+        let node_name = &node.name;
+        let func_name = syn::Ident::new(&format!("make_{}", node_name), makefunc.sig.ident.span());
+        let raw_func_name = &makefunc.sig.ident;
+
+        let arg_fields = makefunc
+            .sig
+            .inputs
+            .iter()
+            .filter_map(|arg| match arg {
+                syn::FnArg::Typed(pat_type) => Some(pat_type),
+                _ => None,
+            })
+            .filter_map(|arg| {
+                /// The arity of the constructor functions sometimes varies
+                /// wildly from the number of fields present on the struct.
+                /// Because of that, we get the field an argument maps to by
+                /// name instead of index. But in a handful of cases, those
+                /// names don't match up, so we have a hard coded list of
+                /// corrections
+                static MISMATCHED_FIELD_NAMES: &[((&str, &str), &str)] = &[
+                    (("BitString", "str_"), "bsval"),
+                    (("Boolean", "val"), "boolval"),
+                    (("DefElem", "name"), "defname"),
+                    (("Float", "numericStr"), "fval"),
+                    (("FuncCall", "name"), "funcname"),
+                    (("FuncExpr", "fformat"), "funcformat"),
+                    (("FuncExpr", "rettype"), "funcresulttype"),
+                    (("Integer", "i"), "ival"),
+                    (("JsonTablePath", "pathname"), "name"),
+                    (("JsonTablePath", "pathvalue"), "value"),
+                    (("JsonTablePathSpec", "string_location"), "location"),
+                    (("String", "str_"), "sval"),
+                ];
+
+                let syn::Pat::Ident(syn::PatIdent { ident: arg, .. }) = &*arg.pat else {
+                    return None;
+                };
+                let arg = MISMATCHED_FIELD_NAMES
+                    .iter()
+                    .find_map(|((sname, argname), fname)| {
+                        (node_name == sname && *arg == argname).then(|| (*fname).to_owned())
+                    })
+                    .unwrap_or_else(|| arg.to_string());
+
+                node.fields.iter().find(|f| f.name == arg)
+            })
+            .collect::<Vec<_>>();
+
+        let fargs = arg_fields.iter().map(|field| -> syn::FnArg {
+            let fname = &field.name;
+            let fty = field.constructor_ty(&lt);
+            parse_quote!(#fname: #fty)
+        });
+        let farg_exprs = arg_fields.iter().map(|field| field.as_raw_expr());
+
+        out_file.items.push(parse_quote! {
+            // FIXME(sage): Change to pub(crate) when we have a way to write a compile-fail
+            // test for invariant lifetimes without making this pub
+            #[doc(hidden)]
+            #[allow(non_snake_case)]
+            pub fn #func_name<#lt>(mem: MemoryToken<#lt>, #(#fargs,)*) -> Unique<#lt, crate::nodes::#node_name> {
+                // SAFETY: The given closure never panics. The function raw
+                // functions we call are only allocating and assigning fields.
+                // They have no error conditions, so we can never longjmp
+                // over Rust frames. We have explicitly taken a mut reference
+                // to MemoryContext to ensure the lifetime is invariant
+                let ptr = unsafe { mem.mem.within(|| {
+                    &mut *raw::#raw_func_name(#(#farg_exprs),*)
+                }) };
+                Unique(Some(ptr), mem.id)
+            }
+        })
+    }
+
+    std::fs::write(
+        out_dir.join("make_funcs_raw.rs"),
+        prettyplease::unparse(&out_file),
+    )?;
+    Ok(makefuncs
+        .into_iter()
+        .map(|(_, f)| f.sig.ident.to_string())
+        .collect())
 }
 
 fn is_flexible_array_ty(ty: &syn::Type) -> bool {

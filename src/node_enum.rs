@@ -34,19 +34,14 @@ impl<'a> Node<'a> {
 
 #[test]
 fn test_node_as_list() {
-    let int = nodes::Integer {
-        type_: raw::NodeTag_T_Integer,
-        ival: 1,
-    };
-    let mut ptr_to_int = &raw const int;
-    let mut list = raw::List {
-        type_: raw::NodeTag_T_List,
-        length: 1,
-        max_length: 1,
-        elements: &raw mut ptr_to_int as *mut raw::ListCell,
-        initial_elements: raw::__IncompleteArrayField::new(),
-    };
-    let node = unsafe { Node::from_ptr(&raw mut list as _) };
+    use crate::make::*;
+    use crate::mem::MemoryContext;
+
+    let mem = MemoryContext::new(c"test_node_as_list");
+    memory_token!(mem);
+    let int = make_Integer(mem, 1);
+    let list = make_List(mem, &[int]);
+    let node = unsafe { Node::from_ptr(list.into_ptr()) };
     let actual = node.expect_node_list().into_iter().collect::<Vec<_>>();
     std::assert_matches!(actual[..], [Node::Integer(nodes::Integer { ival: 1, .. })]);
 }

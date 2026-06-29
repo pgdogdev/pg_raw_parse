@@ -325,6 +325,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "generativity"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2c81fb5260e37854d09d5c87183309fd8c555b75289427884b25660bc87a85e"
+
+[[package]]
 name = "getrandom"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -555,6 +561,7 @@ dependencies = [
  "bindgen",
  "cc",
  "criterion",
+ "generativity",
  "glob",
  "libc",
  "pg_query",

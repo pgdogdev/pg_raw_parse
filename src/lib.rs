@@ -1,15 +1,24 @@
 #![cfg_attr(feature = "field_offset_assertions", feature(offset_of_enum))]
 use std::{ffi, fmt, ptr};
 
+#[doc(hidden)]
+pub use generativity::make_guard;
+
 pub mod const_val;
 mod deparse;
 pub mod error;
 pub mod list;
-mod mem;
+// FIXME(sage): Change to pub(crate) when we have a way to write a compile-fail
+// test for invariant lifetimes without making this pub
+#[doc(hidden)]
+pub mod make;
+// FIXME(sage): Change to pub(crate) when we have a way to write a compile-fail
+// test for invariant lifetimes without making this pub
+#[doc(hidden)]
+pub mod mem;
 pub mod node_enum;
 pub mod nodes;
 mod pg_error;
-#[allow(warnings)]
 pub mod raw;
 pub mod walk;
 

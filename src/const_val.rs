@@ -96,26 +96,20 @@ impl<'a> ConstValue<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::nodes;
+    use crate::make::{make_Boolean, make_Float, make_Integer, memory_token};
+    use crate::mem::MemoryContext;
 
     #[test]
     fn test_integer_value() {
-        let smallint = nodes::Integer {
-            type_: NodeTag_T_Integer,
-            ival: 1,
-        };
-        let bigint = nodes::Float {
-            type_: NodeTag_T_Float,
-            fval: c"1234567890".as_ptr().cast_mut(),
-        };
-        let boolval = nodes::Boolean {
-            type_: NodeTag_T_Boolean,
-            boolval: true,
-        };
+        let mem = MemoryContext::new(c"test_integer_value");
+        memory_token!(mem);
+        let smallint = make_Integer(mem, 1);
+        let bigint = make_Float(mem, Some("1234567890"));
+        let boolval = make_Boolean(mem, true);
 
-        let smallunion = unsafe { *(&raw const smallint).cast() };
-        let bigunion = unsafe { *(&raw const bigint).cast() };
-        let boolunion = unsafe { *(&raw const boolval).cast() };
+        let smallunion = unsafe { *(smallint.into_ptr()).cast() };
+        let bigunion = unsafe { *(bigint.into_ptr()).cast() };
+        let boolunion = unsafe { *(boolval.into_ptr()).cast() };
 
         let smallval = ConstValue::from_raw(&smallunion);
         let bigval = ConstValue::from_raw(&bigunion);
