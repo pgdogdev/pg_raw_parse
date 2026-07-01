@@ -555,7 +555,7 @@ fn generate_node_enum(
             /// SAFETY: The caller is responsible for ensuring the provided
             /// lifetime does not outlast the memory context this Node was
             /// allocated in
-            pub unsafe fn from_ptr(ptr: *mut raw::Node) -> Self {
+            pub(crate) unsafe fn from_ptr(ptr: *mut raw::Node) -> Self {
                 // SAFETY: PG will never return an invalid Node other than NULL
                 // and the caller is ensuring a valid lifetime
                 unsafe { ptr.as_ref() }.map(|p| {
