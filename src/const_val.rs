@@ -96,16 +96,16 @@ impl<'a> ConstValue<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::make::{make_Boolean, make_Float, make_Integer, memory_token};
+    use crate::make::memory_token;
     use crate::mem::MemoryContext;
 
     #[test]
     fn test_integer_value() {
         let mem = MemoryContext::new(c"test_integer_value");
         memory_token!(mem);
-        let smallint = make_Integer(mem, 1);
-        let bigint = make_Float(mem, Some("1234567890"));
-        let boolval = make_Boolean(mem, true);
+        let smallint = mem.make_Integer(1);
+        let bigint = mem.make_Float(Some("1234567890"));
+        let boolval = mem.make_Boolean(true);
 
         let smallunion = unsafe { *(smallint.into_ptr()).cast() };
         let bigunion = unsafe { *(bigint.into_ptr()).cast() };

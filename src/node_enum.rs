@@ -39,8 +39,8 @@ fn test_node_as_list() {
 
     let mem = MemoryContext::new(c"test_node_as_list");
     memory_token!(mem);
-    let int = make_Integer(mem, 1);
-    let list = make_List(mem, &[int]);
+    let int = mem.make_Integer(1);
+    let list = mem.make_List(&[int]);
     let node = unsafe { Node::from_ptr(list.into_ptr()) };
     let actual = node.expect_node_list().into_iter().collect::<Vec<_>>();
     std::assert_matches!(actual[..], [Node::Integer(nodes::Integer { ival: 1, .. })]);

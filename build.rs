@@ -594,11 +594,6 @@ fn generate_make_funcs(
     out_dir: &Path,
 ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let file = syn::parse_file(bindings)?;
-    let mut out_file = syn::File {
-        shebang: None,
-        attrs: Vec::new(),
-        items: Vec::new(),
-    };
 
     let makefuncs = file
         .items
@@ -627,8 +622,8 @@ fn generate_make_funcs(
         })
         .collect::<Vec<_>>();
 
-    for (node, makefunc) in &makefuncs {
-        let lt = parse_quote!('a);
+    let lt = parse_quote!('a);
+    let items = makefuncs.iter().map(|(node, makefunc)| -> syn::ImplItem {
         let node_name = &node.name;
         let func_name = syn::Ident::new(&format!("make_{}", node_name), makefunc.sig.ident.span());
         let raw_func_name = &makefunc.sig.ident;
@@ -684,28 +679,29 @@ fn generate_make_funcs(
         });
         let farg_exprs = arg_fields.iter().map(|field| field.as_raw_expr());
 
-        out_file.items.push(parse_quote! {
-            // FIXME(sage): Change to pub(crate) when we have a way to write a compile-fail
-            // test for invariant lifetimes without making this pub
-            #[doc(hidden)]
+        parse_quote! {
             #[allow(non_snake_case)]
-            pub fn #func_name<#lt>(mem: MemoryToken<#lt>, #(#fargs,)*) -> Unique<#lt, crate::nodes::#node_name> {
+            pub fn #func_name(self, #(#fargs,)*) -> Unique<#lt, crate::nodes::#node_name> {
                 // SAFETY: The given closure never panics. The function raw
                 // functions we call are only allocating and assigning fields.
                 // They have no error conditions, so we can never longjmp
                 // over Rust frames. We have explicitly taken a mut reference
                 // to MemoryContext to ensure the lifetime is invariant
-                let ptr = unsafe { mem.mem.within(|| {
+                let ptr = unsafe { self.mem.within(|| {
                     &mut *raw::#raw_func_name(#(#farg_exprs),*)
                 }) };
-                Unique(Some(ptr), mem.id)
+                Unique(Some(ptr), self.id)
             }
-        })
-    }
+        }
+    });
 
     std::fs::write(
         out_dir.join("make_funcs_raw.rs"),
-        prettyplease::unparse(&out_file),
+        prettyplease::unparse(&parse_quote! {
+            impl<#lt> MemoryToken<#lt> {
+                #(#items)*
+            }
+        }),
     )?;
     Ok(makefuncs
         .into_iter()
