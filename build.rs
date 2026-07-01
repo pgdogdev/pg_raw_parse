@@ -38,6 +38,8 @@ fn main() {
         .derive_copy(false)
         .rustified_non_exhaustive_enum("A_Expr_Kind")
         .rustified_non_exhaustive_enum("BoolExprType")
+        .rustified_non_exhaustive_enum("SortByDir")
+        .rustified_non_exhaustive_enum("SortByNulls")
         .clang_arg(format!("-I{}", build_dir.join("include").display()))
         .clang_arg(format!("-I{}", c_dir.display()))
         .clang_arg(format!(

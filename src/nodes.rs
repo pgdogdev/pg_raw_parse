@@ -3,7 +3,7 @@ use crate::const_val::ConstValue;
 use crate::raw::{__IncompleteArrayField, List, Node, ValUnion};
 use std::fmt;
 
-pub use crate::raw::{A_Expr_Kind, BoolExprType};
+pub use crate::raw::{A_Expr_Kind, BoolExprType, SortByDir, SortByNulls};
 
 include!(concat!(env!("OUT_DIR"), "/nodes_raw.rs"));
 
