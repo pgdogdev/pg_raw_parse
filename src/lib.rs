@@ -1,24 +1,16 @@
 #![cfg_attr(feature = "field_offset_assertions", feature(offset_of_enum))]
 use std::{ffi, fmt, ptr};
 
-#[doc(hidden)]
-pub use generativity::make_guard;
-
 pub mod const_val;
 mod deparse;
 pub mod error;
 pub mod list;
-// FIXME(sage): Change to pub(crate) when we have a way to write a compile-fail
-// test for invariant lifetimes without making this pub
-#[doc(hidden)]
 pub mod make;
-// FIXME(sage): Change to pub(crate) when we have a way to write a compile-fail
-// test for invariant lifetimes without making this pub
-#[doc(hidden)]
-pub mod mem;
+mod mem;
 pub mod node_enum;
 mod node_ptr;
 pub mod nodes;
+mod owned;
 mod pg_error;
 pub mod raw;
 pub mod walk;
@@ -27,6 +19,7 @@ pub use crate::const_val::ConstValue;
 pub use crate::deparse::{DeparseResult, deparse};
 pub use crate::error::{Error, Result};
 pub use crate::node_enum::Node;
+pub use crate::owned::Owned;
 
 pub(crate) use node_ptr::{AsNodePtr, FromNodePtr};
 
