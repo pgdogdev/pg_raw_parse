@@ -510,6 +510,25 @@ fn generate_node_structs(
                 }
             }
         });
+
+        out_file.items.push(parse_quote! {
+            impl<'a> From<&'a #sname> for crate::Node<'a> {
+                fn from(node: &'a #sname) -> Self {
+                    Self::#sname(node)
+                }
+            }
+        });
+
+        out_file.items.push(parse_quote! {
+            impl<'a> From<Option<&'a #sname>> for crate::Node<'a> {
+                fn from(node: Option<&'a #sname>) -> Self {
+                    match node {
+                        Some(node) => Self::from(node),
+                        None => Self::None,
+                    }
+                }
+            }
+        });
     }
 
     std::fs::write(path, prettyplease::unparse(&out_file))?;
