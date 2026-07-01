@@ -50,3 +50,14 @@ wrapped_pnstrdup(const char *in, Size len)
 
   return out;
 }
+
+static inline Node *wrapped_copy_object(Node *node, ErrorData **error) {
+  Node *result = NULL;
+  PG_TRY();
+    result = copyObject(node);
+  PG_CATCH();
+    *error = CopyErrorData();
+    FlushErrorState();
+  PG_END_TRY();
+  return result;
+}

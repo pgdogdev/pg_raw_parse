@@ -17,6 +17,7 @@ pub mod make;
 #[doc(hidden)]
 pub mod mem;
 pub mod node_enum;
+mod node_ptr;
 pub mod nodes;
 mod pg_error;
 pub mod raw;
@@ -26,6 +27,8 @@ pub use crate::const_val::ConstValue;
 pub use crate::deparse::{DeparseResult, deparse};
 pub use crate::error::{Error, Result};
 pub use crate::node_enum::Node;
+
+pub(crate) use node_ptr::{AsNodePtr, FromNodePtr};
 
 pub fn parse(sql: &str) -> Result<ParseResult, error::Error> {
     let mem = mem::MemoryContext::new(c"pg_raw_parse");

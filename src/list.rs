@@ -1,9 +1,9 @@
-use crate::{Node, raw};
+use crate::{AsNodePtr, FromNodePtr, Node, raw};
 use std::ffi::c_int;
 use std::iter::FusedIterator;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
-use std::{fmt, slice};
+use std::{fmt, ptr, slice};
 
 pub(crate) const EMPTY_LIST: NodeList = NodeList {
     _type: raw::NodeTag_T_List,
@@ -93,6 +93,26 @@ impl fmt::Debug for NodeList {
     }
 }
 
+// SAFETY: We are returning NULL for empty lists, or a valid pointer
+unsafe impl<'a> AsNodePtr for &'a NodeList {
+    type ConvertLifetime<'b> = &'b NodeList;
+
+    fn as_ptr(self) -> *mut raw::Node {
+        if self.is_empty() {
+            ptr::null_mut()
+        } else {
+            ptr::from_ref(self).cast_mut().cast()
+        }
+    }
+}
+
+impl<'a> FromNodePtr for &'a NodeList {
+    unsafe fn from_ptr(ptr: *mut raw::Node) -> Self {
+        // SAFETY: Caller is responsible for making this safe
+        unsafe { Node::from_ptr(ptr) }.expect_node_list()
+    }
+}
+
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct NodeListIter<'a, T = Node<'a>> {
     iter: slice::Iter<'a, *mut raw::Node>,
@@ -100,18 +120,6 @@ pub struct NodeListIter<'a, T = Node<'a>> {
 }
 
 impl<'a, T> NodeListIter<'a, T> {
-    /// SAFETY: 'a must outlive the lifetime of the node
-    unsafe fn convert_node(ptr: *mut raw::Node) -> T
-    where
-        T: TryFrom<Node<'a>>,
-        T::Error: fmt::Debug,
-    {
-        use std::any::type_name;
-        // SAFETY: 'a will always outlive the memory context of the node
-        let node = unsafe { Node::from_ptr(ptr) };
-        T::try_from(node).unwrap_or_else(|e| panic!("Expected a {}, got {:?}", type_name::<T>(), e))
-    }
-
     /// Casts the list to a specific node type
     fn cast<U>(self) -> NodeListIter<'a, U> {
         NodeListIter {
@@ -121,17 +129,13 @@ impl<'a, T> NodeListIter<'a, T> {
     }
 }
 
-impl<'a, T> Iterator for NodeListIter<'a, T>
-where
-    T: TryFrom<Node<'a>>,
-    T::Error: fmt::Debug,
-{
+impl<'a, T: FromNodePtr> Iterator for NodeListIter<'a, T> {
     type Item = T;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         // SAFETY: 'a always outlives the Node
-        self.iter.next().map(|p| unsafe { Self::convert_node(*p) })
+        self.iter.next().map(|p| unsafe { T::from_ptr(*p) })
     }
 
     #[inline]
@@ -147,17 +151,11 @@ where
 
 impl<'a, T> FusedIterator for NodeListIter<'a, T> where Self: Iterator {}
 
-impl<'a, T> DoubleEndedIterator for NodeListIter<'a, T>
-where
-    T: TryFrom<Node<'a>>,
-    T::Error: fmt::Debug,
-{
+impl<'a, T: FromNodePtr> DoubleEndedIterator for NodeListIter<'a, T> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         // SAFETY: 'a always outlives the Node
-        self.iter
-            .next_back()
-            .map(|p| unsafe { Self::convert_node(*p) })
+        self.iter.next_back().map(|p| unsafe { T::from_ptr(*p) })
     }
 }
 
@@ -254,5 +252,12 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(*self).finish()
+    }
+}
+
+impl<'a, T> FromNodePtr for &'a CastNodeList<T> {
+    unsafe fn from_ptr(ptr: *mut raw::Node) -> Self {
+        // SAFETY: Caller is responsible for making this safe
+        unsafe { <&'a NodeList>::from_ptr(ptr) }.cast()
     }
 }

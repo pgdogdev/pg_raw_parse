@@ -120,6 +120,7 @@ fn main() {
         .allowlist_item("wrapped_raw_deparse")
         .allowlist_item("wrapped_pnstrdup")
         .allowlist_item("list_copy")
+        .allowlist_item("wrapped_copy_object")
         .wrap_static_fns(true)
         .wrap_static_fns_path(out_dir.join("wrap_static_fns"));
     for struct_name in &node_structs {
@@ -196,12 +197,12 @@ impl NodeField {
         match &self.ty {
             Private(_) | Primitive(_) => None,
 
-            Node => Some(parse_quote! {
+            Node | List | CastList(_) => Some(parse_quote! {
                 #(#fattrs)*
                 #[inline]
                 pub fn #fname(&self) -> #ret {
                     // SAFETY: The lifetime is not longer than self
-                    unsafe { crate::Node::from_ptr(self.#fname) }
+                    unsafe { crate::FromNodePtr::from_ptr(self.#fname.cast()) }
                 }
             }),
 
@@ -211,27 +212,6 @@ impl NodeField {
                 pub fn #fname(&self) -> #ret {
                     // SAFETY: Pointer will always be valid or NULL
                     unsafe { self.#fname.as_ref() }
-                }
-            }),
-
-            List => Some(parse_quote! {
-                #(#fattrs)*
-                #[inline]
-                pub fn #fname(&self) -> #ret {
-                    // SAFETY: The lifetime is not longer than self
-                    unsafe { crate::Node::from_ptr(self.#fname.cast()) }
-                        .expect_node_list()
-                }
-            }),
-
-            CastList(_) => Some(parse_quote! {
-                #(#fattrs)*
-                #[inline]
-                pub fn #fname(&self) -> #ret {
-                    // SAFETY: The lifetime is not longer than self
-                    unsafe { crate::Node::from_ptr(self.#fname.cast()) }
-                        .expect_node_list()
-                        .cast()
                 }
             }),
 
@@ -529,6 +509,31 @@ fn generate_node_structs(
                 }
             }
         });
+
+        out_file.items.push(parse_quote! {
+            impl<'a> crate::FromNodePtr for &'a #sname {
+                unsafe fn from_ptr(ptr: *mut Node) -> Self {
+                    // Caller is responsible for making this safe
+                    unsafe { crate::Node::from_ptr(ptr) }
+                        .try_into()
+                        .unwrap_or_else(|e| {
+                            panic!(concat!("Expected a ", stringify!(#sname), "got {:?}"), e)
+
+                        })
+                }
+            }
+        });
+
+        out_file.items.push(parse_quote! {
+            // SAFETY: Self is a type of node
+            unsafe impl<'a> crate::AsNodePtr for &'a #sname {
+                type ConvertLifetime<'b> = &'b #sname;
+
+                fn as_ptr(self) -> *mut Node {
+                    std::ptr::from_ref(self).cast_mut().cast()
+                }
+            }
+        });
     }
 
     std::fs::write(path, prettyplease::unparse(&out_file))?;
@@ -570,11 +575,11 @@ fn generate_node_enum(
     });
 
     out_file.items.push(parse_quote! {
-        impl<'a> Node<'a> {
+        impl<'a> FromNodePtr for Node<'a> {
             /// SAFETY: The caller is responsible for ensuring the provided
             /// lifetime does not outlast the memory context this Node was
             /// allocated in
-            pub(crate) unsafe fn from_ptr(ptr: *mut raw::Node) -> Self {
+            unsafe fn from_ptr(ptr: *mut raw::Node) -> Self {
                 // SAFETY: PG will never return an invalid Node other than NULL
                 // and the caller is ensuring a valid lifetime
                 unsafe { ptr.as_ref() }.map(|p| {
@@ -590,9 +595,16 @@ fn generate_node_enum(
                     }
                 }).unwrap_or(Self::None)
             }
+        }
+    });
 
-            pub(crate) fn as_ptr(&self) -> *mut raw::Node {
-                match *self {
+    out_file.items.push(parse_quote! {
+        // SAFETY: We are returning the inner pointer from as_ptr
+        unsafe impl<'a> AsNodePtr for Node<'a> {
+            type ConvertLifetime<'b> = Node<'b>;
+
+            fn as_ptr(self) -> *mut raw::Node {
+                match self {
                     Self::None => std::ptr::null_mut(),
                     Self::Invalid(p) => (&raw const *p).cast_mut(),
                     Self::NodeList(p) => (&raw const *p).cast_mut().cast(),
@@ -700,16 +712,16 @@ fn generate_make_funcs(
 
         parse_quote! {
             #[allow(non_snake_case)]
-            pub fn #func_name(self, #(#fargs,)*) -> Unique<#lt, crate::nodes::#node_name> {
+            pub fn #func_name(self, #(#fargs,)*) -> Unique<#lt, &#lt crate::nodes::#node_name> {
                 // SAFETY: The given closure never panics. The function raw
                 // functions we call are only allocating and assigning fields.
                 // They have no error conditions, so we can never longjmp
                 // over Rust frames. We have explicitly taken a mut reference
                 // to MemoryContext to ensure the lifetime is invariant
                 let ptr = unsafe { self.mem.within(|| {
-                    &mut *raw::#raw_func_name(#(#farg_exprs),*)
+                    raw::#raw_func_name(#(#farg_exprs),*)
                 }) };
-                Unique(Some(ptr), self.id)
+                Unique(ptr.cast(), self.id, PhantomData)
             }
         }
     });

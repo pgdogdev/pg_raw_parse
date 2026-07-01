@@ -1,5 +1,5 @@
 use crate::pg_error::PgError;
-use crate::{Node, raw};
+use crate::{AsNodePtr, FromNodePtr, Node, raw};
 use std::ffi::c_void;
 use std::ops::ControlFlow;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};

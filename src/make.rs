@@ -1,6 +1,11 @@
+use crate::AsNodePtr;
+#[cfg(test)]
+use crate::FromNodePtr;
 use crate::mem::MemoryContext;
 use crate::raw::{self, *};
 use generativity::Id;
+use std::any::type_name;
+use std::marker::PhantomData;
 use std::ptr;
 
 include!(concat!(env!("OUT_DIR"), "/make_funcs_raw.rs"));
@@ -41,7 +46,7 @@ impl<'a> MemoryToken<'a> {
     #[allow(non_snake_case)]
     pub fn make_List<T>(self, elems: &[Unique<'a, T>]) -> Unique<'a, crate::list::NodeList> {
         if elems.is_empty() {
-            Unique(None, self.id)
+            Unique(ptr::null_mut(), self.id, PhantomData)
         } else {
             let list_to_copy = raw::List {
                 type_: raw::NodeTag_T_List,
@@ -53,8 +58,24 @@ impl<'a> MemoryToken<'a> {
             // SAFETY: The given closure never panics, we're passing valid pointers
             let ptr = unsafe { self.mem.within(|| raw::list_copy(&raw const list_to_copy)) };
             // SAFETY: The returned pointer is always a palloc'd list pointer
-            Unique(Some(unsafe { &mut *ptr.cast() }), self.id)
+            Unique(ptr.cast(), self.id, PhantomData)
         }
+    }
+
+    /// Performs a deep copy of the given node onto this memory context,
+    /// returning a unique pointer to it.
+    pub fn make_unique<'b, T: AsNodePtr>(self, node: T) -> Unique<'a, T::ConvertLifetime<'a>> {
+        let node_ptr = node.as_ptr();
+        let mut err = ptr::null_mut();
+        let copied = unsafe {
+            self.mem
+                .within(|| raw::wrapped_copy_object(node_ptr, &mut err))
+        };
+        if !err.is_null() {
+            panic!("Unable to copy node of type {}", type_name::<T>())
+        }
+
+        Unique(copied.cast(), self.id, PhantomData)
     }
 }
 
@@ -82,7 +103,7 @@ pub use memory_token;
 /// A uniquely owned pointer to a node. This is effectively `Box<T>`, but
 /// constrained to the lifetime of its memory context.
 #[repr(C)]
-pub struct Unique<'a, T>(Option<&'a mut T>, Id<'a>);
+pub struct Unique<'a, T>(*mut raw::Node, Id<'a>, PhantomData<T>);
 
 impl<'a, T> Unique<'a, T> {
     /// Consume this to get the inner raw node pointer, erasing its lifetime.
@@ -90,6 +111,48 @@ impl<'a, T> Unique<'a, T> {
     /// context, or assigned to the field of a node within the same memory
     /// context.
     pub(crate) fn into_ptr(self) -> *mut raw::Node {
-        self.0.map(ptr::from_mut).unwrap_or(ptr::null_mut()).cast()
+        self.0
     }
+
+    #[cfg(test)]
+    fn into_inner(self) -> T
+    where
+        T: FromNodePtr,
+    {
+        // SAFETY: Always a valid pointer
+        unsafe { T::from_ptr(self.into_ptr()) }
+    }
+}
+
+#[test]
+fn make_empty_list() {
+    memory_token!(c"mem", mem);
+    let list = mem.make_List::<crate::Node<'_>>(&[]);
+    assert!(list.into_ptr().is_null());
+}
+
+#[test]
+fn copy_null_pointer() {
+    let none_node = crate::Node::None;
+    let empty_list = &crate::list::EMPTY_LIST;
+
+    memory_token!(c"mem", mem);
+    let copy_none = mem.make_unique(none_node);
+    assert!(copy_none.into_ptr().is_null());
+    let copy_list = mem.make_unique(empty_list);
+    assert!(copy_list.into_ptr().is_null());
+}
+
+#[test]
+fn copy_node() {
+    use crate::nodes;
+
+    memory_token!(c"mem1", mem1);
+    memory_token!(c"mem2", mem2);
+
+    let s = mem1.make_String(Some("hi")).into_inner();
+    let copied_string: Unique<'_, &nodes::String> = mem2.make_unique(s);
+    assert_eq!(Some("hi"), copied_string.into_inner().sval());
+    let copied_node: Unique<'_, crate::Node<'_>> = mem2.make_unique(crate::Node::String(s));
+    assert_eq!(Some("hi"), copied_node.into_inner().as_str());
 }
