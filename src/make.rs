@@ -1,8 +1,8 @@
-use crate::AsNodePtr;
 #[cfg(test)]
 use crate::FromNodePtr;
 use crate::mem::MemoryContext;
 use crate::raw::{self, *};
+use crate::{AsNodePtr, Owned};
 use generativity::Id;
 use std::any::type_name;
 use std::marker::PhantomData;
@@ -18,33 +18,32 @@ include!(concat!(env!("OUT_DIR"), "/make_funcs_raw.rs"));
 /// related
 ///
 /// ```compile_fail
-/// use pg_raw_parse::make::memory_token;
+/// use pg_raw_parse::make::owned;
 ///
-/// memory_token!(c"mem1", mem1);
-/// memory_token!(c"mem2", mem2);
-/// let node = mem2.make_String(Some("hi"));
-/// let _list = mem1.make_List(&[node]); // Fails, node is on mem2
+/// owned(|mem1| {
+///     let node = mem1.make_String(Some("hi"));
+///     owned(|mem2| mem2.make_List(&[node])); // Fails, node is on mem1
+///     mem1.make_String(Some("lol"))
+/// });
 /// ```
 ///
 /// ```
-/// use pg_raw_parse::make::memory_token;
+/// use pg_raw_parse::make::owned;
 ///
-/// memory_token!(c"mem1", mem1);
-/// memory_token!(c"mem2", mem2);
-/// let node = mem1.make_String(Some("hi"));
-/// let _list = mem1.make_List(&[node]); // Is fine, both nodes are on mem1
+/// owned(|mem1| {
+///     let node = mem1.make_String(Some("hi"));
+///     mem1.make_List(&[node]) // Is fine, both nodes are on mem1
+/// });
 /// ```
 #[derive(Clone, Copy)]
 pub struct MemoryToken<'a> {
-    #[doc(hidden)]
-    pub mem: &'a MemoryContext,
-    #[doc(hidden)]
-    pub id: Id<'a>,
+    mem: &'a MemoryContext,
+    id: Id<'a>,
 }
 
 impl<'a> MemoryToken<'a> {
     #[allow(non_snake_case)]
-    pub fn make_List<T>(self, elems: &[Unique<'a, T>]) -> Unique<'a, crate::list::NodeList> {
+    pub fn make_List<T>(self, elems: &[Unique<'a, T>]) -> Unique<'a, &'a crate::list::NodeList> {
         if elems.is_empty() {
             Unique(ptr::null_mut(), self.id, PhantomData)
         } else {
@@ -79,27 +78,6 @@ impl<'a> MemoryToken<'a> {
     }
 }
 
-#[macro_export]
-macro_rules! memory_token {
-    ($mname:literal, $mem:ident) => {
-        let $mem = $crate::mem::MemoryContext::new($mname);
-        memory_token!($mem);
-    };
-
-    ($mem:ident) => {
-        $crate::make_guard!(a);
-        let $mem = $crate::make::MemoryToken {
-            mem: &$mem,
-            id: a.into(),
-        };
-    };
-}
-
-// FIXME(sage): Change to pub(crate) when we have a way to write a compile-fail
-// test for invariant lifetimes without making this pub
-#[doc(hidden)]
-pub use memory_token;
-
 /// A uniquely owned pointer to a node. This is effectively `Box<T>`, but
 /// constrained to the lifetime of its memory context.
 #[repr(C)]
@@ -124,11 +102,49 @@ impl<'a, T> Unique<'a, T> {
     }
 }
 
+/// Construct an owned node. A new memory context will be created, and passed
+/// to the given function to allocate onto it. The entire arena will be owned
+/// by the return value of this function. The given closure may only return data
+/// owned by the memory context passed as an argument
+///
+/// ```compile_fail
+/// use pg_raw_parse::make::owned;
+///
+/// let mut node = None;
+/// owned(|mem| {
+///     node = Some(mem.make_String(Some("smuggled")));
+///     mem.make_String(Some("returned"))
+/// });
+/// ```
+///
+/// ```compile_fail
+/// use pg_raw_parse::make::owned;
+///
+/// owned(|mem1| {
+///     owned(|mem2| mem1.make_String(Some("wrong mem")));
+///     mem1.make_String(Some("right mem"))
+/// });
+/// ```
+pub fn owned<F, T>(f: F) -> Owned<T>
+where
+    for<'a> F: FnOnce(MemoryToken<'a>) -> Unique<'a, &'a T>,
+{
+    let mem = MemoryContext::new(c"pg_raw_parse_owned_node");
+    let node = {
+        generativity::make_guard!(a);
+        let token = MemoryToken {
+            mem: &mem,
+            id: a.into(),
+        };
+        f(token).into_ptr()
+    };
+    Owned::new(mem, node)
+}
+
 #[test]
 fn make_empty_list() {
-    memory_token!(c"mem", mem);
-    let list = mem.make_List::<crate::Node<'_>>(&[]);
-    assert!(list.into_ptr().is_null());
+    let list = owned(|mem| mem.make_List::<crate::Node<'_>>(&[]));
+    assert!(list.as_ptr().is_null());
 }
 
 #[test]
@@ -136,23 +152,21 @@ fn copy_null_pointer() {
     let none_node = crate::Node::None;
     let empty_list = &crate::list::EMPTY_LIST;
 
-    memory_token!(c"mem", mem);
-    let copy_none = mem.make_unique(none_node);
-    assert!(copy_none.into_ptr().is_null());
-    let copy_list = mem.make_unique(empty_list);
-    assert!(copy_list.into_ptr().is_null());
+    let copy_list = owned(|mem| {
+        let copy_none = mem.make_unique(none_node);
+        assert!(copy_none.into_ptr().is_null());
+        mem.make_unique(empty_list)
+    });
+    assert!(copy_list.as_ptr().is_null());
 }
 
 #[test]
 fn copy_node() {
-    use crate::nodes;
-
-    memory_token!(c"mem1", mem1);
-    memory_token!(c"mem2", mem2);
-
-    let s = mem1.make_String(Some("hi")).into_inner();
-    let copied_string: Unique<'_, &nodes::String> = mem2.make_unique(s);
-    assert_eq!(Some("hi"), copied_string.into_inner().sval());
-    let copied_node: Unique<'_, crate::Node<'_>> = mem2.make_unique(crate::Node::String(s));
-    assert_eq!(Some("hi"), copied_node.into_inner().as_str());
+    let s = owned(|mem| mem.make_String(Some("hi")));
+    let copied_string = owned(|mem| {
+        let copied_node = mem.make_unique(crate::Node::String(&*s));
+        assert_eq!(Some("hi"), copied_node.into_inner().as_str());
+        mem.make_unique(&*s)
+    });
+    assert_eq!(Some("hi"), copied_string.sval());
 }

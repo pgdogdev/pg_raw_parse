@@ -1,16 +1,10 @@
 use crate::raw;
 use std::ffi::CStr;
 
-// FIXME(sage): Change to pub(crate) when we have a way to write a compile-fail
-// test for invariant lifetimes without making this pub
-#[doc(hidden)]
-pub struct MemoryContext(raw::MemoryContext);
+pub(crate) struct MemoryContext(raw::MemoryContext);
 
 impl MemoryContext {
-    // FIXME(sage): Change to pub(crate) when we have a way to write a compile-fail
-    // test for invariant lifetimes without making this pub
-    #[doc(hidden)]
-    pub fn new(name: &'static CStr) -> Self {
+    pub(crate) fn new(name: &'static CStr) -> Self {
         // SAFETY: No documented invariants
         unsafe {
             raw::pg_query_init();
