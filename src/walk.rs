@@ -5,13 +5,12 @@ use std::ops::ControlFlow;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
 /// Walks an AST tree, calling `f` for every node in the tree, including `node`
-pub fn walk<'a>(node: Node<'a>, mut f: impl FnMut(Node<'a>)) -> crate::Result {
+pub fn walk<'a>(node: Node<'a>, mut f: impl FnMut(Node<'a>)) {
     f(node);
     walk_manual::<()>(node, |n| {
         f(n);
         ControlFlow::Continue(Recurse::Yes)
-    })?;
-    Ok(())
+    });
 }
 
 /// Calls `callback` for each child of this AST, allowing fine grained control
@@ -38,8 +37,7 @@ pub fn walk<'a>(node: Node<'a>, mut f: impl FnMut(Node<'a>)) -> crate::Result {
 ///         Recurse::recurse_unless(s.fromClause().len() > 0)
 ///     }
 ///     _ => Recurse::yes(),
-/// })
-/// .unwrap();
+/// });
 /// assert_eq!(3, select_count);
 /// ```
 ///
@@ -58,20 +56,20 @@ pub fn walk<'a>(node: Node<'a>, mut f: impl FnMut(Node<'a>)) -> crate::Result {
 ///         None => unreachable!(),
 ///     },
 ///     _ => Recurse::yes(),
-/// })
-/// .unwrap();
+/// });
 /// assert_eq!(Some(1), res);
 /// ```
 pub fn walk_manual<'a, B>(
     node: Node<'a>,
     mut callback: impl FnMut(Node<'a>) -> ControlFlow<B, Recurse>,
-) -> crate::Result<Option<B>> {
+) -> Option<B> {
     let mut result = None;
     walk_expression_tree(node, |node| {
         let res = callback(node);
         res.map_break(|b| result = Some(b))
-    })?;
-    Ok(result)
+    })
+    .expect("failed to walk expression tree");
+    result
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -204,7 +202,6 @@ fn test_walking_entire_ast() {
                 m = m.max(p.number);
             }
         })
-        .unwrap();
     }
     assert_eq!(c, 3);
     assert_eq!(m, 2);
@@ -216,24 +213,20 @@ fn panicking_in_walk_does_not_abort() {
     let parsed = crate::parse("SELECT 1").unwrap();
     walk(parsed.stmts().nth(0).unwrap(), |_| {
         panic!("look ma, no abort!")
-    })
-    .unwrap();
+    });
 }
 
 #[test]
+#[should_panic = "unrecognized node type"]
 fn walking_unsupported_node_type_does_not_abort() {
     unsafe { raw::pg_query_init() };
     let raw_node = raw::Node { type_: u32::MAX };
     let node = Node::Invalid(&raw_node);
-    let res = walk(node, |_| ());
-    assert!(
-        res.unwrap_err()
-            .to_string()
-            .contains("unrecognized node type"),
-    );
+    walk(node, |_| ());
 }
 
 #[test]
+#[should_panic = "unrecognized node type"]
 fn error_is_set_after_recursion() {
     unsafe {
         raw::pg_query_init();
@@ -249,10 +242,5 @@ fn error_is_set_after_recursion() {
     };
     // SAFETY: It's a stack pointer. It's fine.
     let node = unsafe { Node::from_ptr(&raw mut list as *mut raw::Node) };
-    let res = walk(node, |_| ());
-    assert!(
-        res.unwrap_err()
-            .to_string()
-            .contains("unrecognized node type"),
-    );
+    walk(node, |_| ());
 }
