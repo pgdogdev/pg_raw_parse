@@ -2,6 +2,8 @@ use crate::raw::{self, NodeTag};
 use generativity::Id;
 use std::ptr::{self, NonNull};
 
+/// # Safety
+///
 /// [AsNodePtr::as_ptr] must convert back to Self when passed to
 /// [FromNodePtr::from_ptr]
 pub unsafe trait AsNodePtr {

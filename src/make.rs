@@ -128,7 +128,7 @@ impl<'a> MemoryToken<'a> {
 
     /// Performs a deep copy of the given node onto this memory context,
     /// returning a unique pointer to it.
-    pub fn make_unique<'b, T: AsNodePtr>(self, node: T) -> Unique<'a, T::ConvertLifetime<'a>> {
+    pub fn make_unique<T: AsNodePtr>(self, node: T) -> Unique<'a, T::ConvertLifetime<'a>> {
         let node_ptr = node.as_ptr();
         let mut err = ptr::null_mut();
         // SAFETY: This never panics

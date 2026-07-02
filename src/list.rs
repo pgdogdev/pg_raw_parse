@@ -94,7 +94,7 @@ impl fmt::Debug for NodeList {
 }
 
 // SAFETY: We are returning NULL for empty lists, or a valid pointer
-unsafe impl<'a> AsNodePtr for &'a NodeList {
+unsafe impl AsNodePtr for &NodeList {
     type ConvertLifetime<'b> = &'b NodeList;
     type List = NodeList;
 
@@ -107,7 +107,7 @@ unsafe impl<'a> AsNodePtr for &'a NodeList {
     }
 }
 
-impl<'a> FromNodePtr for &'a NodeList {
+impl FromNodePtr for &NodeList {
     unsafe fn from_ptr(tag: raw::NodeTag, ptr: Option<NonNull<raw::Node>>) -> Self {
         // SAFETY: Caller is responsible for making this safe
         unsafe { Node::from_ptr(tag, ptr) }.expect_node_list()
@@ -246,7 +246,7 @@ where
     }
 }
 
-impl<'a, T> fmt::Debug for &'a CastNodeList<T>
+impl<T> fmt::Debug for &CastNodeList<T>
 where
     Self: IntoIterator,
     <Self as IntoIterator>::Item: fmt::Debug,

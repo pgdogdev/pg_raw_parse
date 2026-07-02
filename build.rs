@@ -914,7 +914,7 @@ fn build_node_struct(s: &syn::ItemStruct, type_comment_regex: &Regex) -> NodeStr
         .map(|f| {
             let attrs = clean_doc_comments(&f.attrs);
             let name = f.ident.clone().expect("C doesn't have unnamed fields");
-            let ty = determine_field_ty(&f, type_comment_regex);
+            let ty = determine_field_ty(f, type_comment_regex);
             NodeField { attrs, name, ty }
         })
         .collect();
@@ -966,12 +966,12 @@ fn determine_list_field_ty(field: &syn::Field, comment_regex: &Regex) -> NodeFie
         NodeFieldType::Private(field.ty.clone())
     } else if let Some(captures) = doc_comments
         .iter()
-        .find_map(|doc| comment_regex.captures(&doc))
+        .find_map(|doc| comment_regex.captures(doc))
     {
         // We found a comment containing "list of NodeType". Assume the
         // comment isn't lying, cast the list to NodeType
         let type_name = &captures[1];
-        let ident = syn::Ident::new(type_name, field.ty.span().clone());
+        let ident = syn::Ident::new(type_name, field.ty.span());
         NodeFieldType::CastList(parse_quote!(#ident))
     } else {
         // Polymorphic list or list without adequate documentation
