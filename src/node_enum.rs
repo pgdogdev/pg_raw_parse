@@ -1,4 +1,4 @@
-use crate::{AsNodePtr, FromNodePtr, list, nodes, raw};
+use crate::{AsNodePtr, ConstructableNode, FromNodePtr, list, nodes, raw};
 use std::ptr::NonNull;
 
 include!(concat!(env!("OUT_DIR"), "/node_enum_raw.rs"));

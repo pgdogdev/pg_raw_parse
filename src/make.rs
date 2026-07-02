@@ -1,10 +1,10 @@
-#[cfg(test)]
-use crate::FromNodePtr;
+use crate::list::NodeList;
 use crate::mem::MemoryContext;
 use crate::raw::{self, *};
-use crate::{AsNodePtr, FromNodeMut, Node, Owned};
+use crate::{AsNodePtr, ConstValue, ConstructableNode, FromNodeMut, Node, Owned, nodes};
 use generativity::Id;
 use std::any::type_name;
+use std::ffi::c_char;
 use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
 
@@ -43,7 +43,7 @@ pub struct MemoryToken<'a> {
 
 impl<'a> MemoryToken<'a> {
     #[allow(non_snake_case)]
-    pub fn make_List<T>(self, elems: &[Unique<'a, T>]) -> Unique<'a, &'a crate::list::NodeList> {
+    pub fn make_List<T>(self, elems: &[Unique<'a, T>]) -> Unique<'a, &'a NodeList> {
         if elems.is_empty() {
             Unique(ptr::null_mut(), self.id, PhantomData)
         } else {
@@ -61,11 +61,54 @@ impl<'a> MemoryToken<'a> {
         }
     }
 
+    #[allow(non_snake_case)]
+    pub fn make_ColumnRef(
+        self,
+        fields: Unique<'a, &'a NodeList>,
+    ) -> Unique<'a, &'a nodes::ColumnRef> {
+        let mut node = self.make_node::<nodes::ColumnRef>();
+        node.as_mut().set_fields(fields);
+        node
+    }
+
+    #[allow(non_snake_case)]
+    pub fn make_A_Const(self, val: ConstValue) -> Unique<'a, &'a nodes::A_Const> {
+        use ConstValue::*;
+
+        let mut node = self.make_node::<nodes::A_Const>();
+        let node_ref = node.as_mut().into_inner();
+        node_ref.isnull = false;
+        // SAFETY: We're never casting to anything other than node without
+        // checking the tag
+        unsafe {
+            let v = &mut node_ref.val;
+            v.node.as_mut().type_ = val.tag();
+            match val {
+                Integer(i) => v.ival.as_mut().ival = i,
+                Boolean(b) => v.boolval.as_mut().boolval = b,
+                // These are all the same repr, so it doesn't matter which
+                // variant we assign the string pointer to as long as we set
+                // the tag correctly.
+                Float(s) | String(s) | BitString(s) => v.sval.as_mut().sval = self.copy_string(s),
+                Unrecognized(_) => panic!("Cannot create A_Const with unrecognized value"),
+            }
+        }
+        node
+    }
+
+    #[allow(non_snake_case)]
+    pub fn make_NULL(self) -> Unique<'a, &'a nodes::A_Const> {
+        let mut node = self.make_node::<nodes::A_Const>();
+        node.as_mut().into_inner().isnull = true;
+        node
+    }
+
     /// Performs a deep copy of the given node onto this memory context,
     /// returning a unique pointer to it.
     pub fn make_unique<'b, T: AsNodePtr>(self, node: T) -> Unique<'a, T::ConvertLifetime<'a>> {
         let node_ptr = node.as_ptr();
         let mut err = ptr::null_mut();
+        // SAFETY: This never panics
         let copied = unsafe {
             self.mem
                 .within(|| raw::wrapped_copy_object(node_ptr, &mut err))
@@ -75,6 +118,32 @@ impl<'a> MemoryToken<'a> {
         }
 
         Unique(copied.cast(), self.id, PhantomData)
+    }
+
+    /// Create a new instance of the given Node type. The entire allocation
+    /// will be zeroed, meaning all pointers will be None, all lists will be
+    /// empty, and all primitives will be 0
+    ///
+    /// The return value of this may not be a logically valid instance of a
+    /// node, but it will be semantically valid and unsafe code must ensure it
+    /// does not result in undefined behavior if it receives such an instance
+    pub fn make_node<T>(self) -> Unique<'a, &'a T>
+    where
+        T: ConstructableNode,
+    {
+        let size = std::mem::size_of::<T>();
+        let tag = T::TAG;
+        // SAFETY: This never panics
+        let ptr = unsafe { self.mem.within(|| raw::newNode(size, tag)) };
+        Unique(ptr.cast(), self.id, PhantomData)
+    }
+
+    pub(crate) fn copy_string(self, s: &str) -> *mut c_char {
+        // SAFETY: This never panics
+        unsafe {
+            self.mem
+                .within(|| raw::wrapped_pnstrdup(s.as_ptr().cast(), s.len()))
+        }
     }
 }
 
@@ -100,7 +169,7 @@ impl<'a, T> Unique<'a, T> {
     #[cfg(test)]
     fn into_inner(self) -> T
     where
-        T: FromNodePtr,
+        T: crate::FromNodePtr,
     {
         // SAFETY: Always a valid pointer
         unsafe { T::from_raw(self.into_ptr()) }
@@ -233,16 +302,14 @@ fn copy_node() {
 #[test]
 fn make_complex_node() {
     use crate::nodes::A_Expr_Kind;
-    use crate::{Node, nodes};
 
     let a_expr = owned(|mem| {
-        // FIXME(sage): Use this to test ColumnRef and A_Const, which we'll
-        // need to manually add
         mem.make_A_Expr(
             A_Expr_Kind::AEXPR_OP,
             mem.make_List(&[mem.make_String(Some("="))]),
-            mem.make_String(Some("id")).as_node(),
-            mem.make_Integer(1).as_node(),
+            mem.make_ColumnRef(mem.make_List(&[mem.make_String(Some("id"))]))
+                .as_node(),
+            mem.make_A_Const(ConstValue::Integer(1)).as_node(),
         )
     });
 
@@ -252,7 +319,9 @@ fn make_complex_node() {
             kind: A_Expr_Kind::AEXPR_OP,
             ..
         } if a_expr.name().iter().map(Node::as_str).eq([Some("=")])
-            && matches!(a_expr.lexpr(), Node::String(s) if s.sval() == Some("id"))
-            && matches!(a_expr.rexpr(), Node::Integer(nodes::Integer { ival: 1, .. }))
+            && matches!(a_expr.lexpr(), Node::ColumnRef(c)
+                if c.fields().iter().map(Node::as_str).eq([Some("id")]))
+            && matches!(a_expr.rexpr(), Node::A_Const(c)
+                if c.val().and_then(|c| c.numeric_value::<i32>()) == Some(1))
     );
 }

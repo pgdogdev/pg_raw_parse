@@ -52,3 +52,7 @@ pub trait FromNodeMut {
     /// allocated onto the MemoryContext referenced by 'a.
     unsafe fn from_ptr_mut<'a, 'b>(ptr: NonNull<Self>, id: Id<'a>) -> Self::MutRef<'a, 'b>;
 }
+
+pub trait ConstructableNode: Sized {
+    const TAG: NodeTag;
+}
