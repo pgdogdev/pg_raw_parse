@@ -1,4 +1,4 @@
-use crate::{AsNodePtr, FromNodePtr, mem, raw};
+use crate::{FromNodePtr, mem, raw};
 use std::marker::PhantomData;
 use std::ops::Deref;
 
@@ -30,14 +30,5 @@ where
     fn deref(&self) -> &Self::Target {
         // SAFETY: The lifetime cannot outlive self
         unsafe { FromNodePtr::from_raw(self.ptr) }
-    }
-}
-
-// SAFETY: We were always constructed with a valid pointer
-unsafe impl<T> AsNodePtr for Owned<T> {
-    type ConvertLifetime<'b> = Self;
-
-    fn as_ptr(self) -> *mut raw::Node {
-        self.ptr
     }
 }

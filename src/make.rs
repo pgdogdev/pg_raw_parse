@@ -145,6 +145,16 @@ impl<'a> MemoryToken<'a> {
                 .within(|| raw::wrapped_pnstrdup(s.as_ptr().cast(), s.len()))
         }
     }
+
+    /// Returns an empty list
+    pub fn empty(self) -> Unique<'a, &'a NodeList> {
+        Unique(ptr::null_mut(), self.id, PhantomData)
+    }
+
+    /// Returns a NULL pointer to a node (a.k.a. None)
+    pub fn none(self) -> Unique<'a, Node<'a>> {
+        Unique(ptr::null_mut(), self.id, PhantomData)
+    }
 }
 
 /// A uniquely owned pointer to a node. This is effectively `Box<T>`, but
@@ -162,7 +172,7 @@ impl<'a, T> Unique<'a, T> {
     }
 
     /// Erase the concrete type, returning a unique [`Node<'a>`]
-    pub fn as_node(self) -> Unique<'a, Node<'a>> {
+    pub fn uncast(self) -> Unique<'a, Node<'a>> {
         Unique(self.0, self.1, PhantomData)
     }
 
@@ -191,12 +201,12 @@ where
     /// owned(|mem| {
     ///     let mut expr = mem.make_A_Expr(
     ///         AEXPR_OP,
-    ///         mem.make_List::<()>(&[]),
-    ///         mem.make_unique(Node::None),
-    ///         mem.make_unique(Node::None),
+    ///         mem.empty(),
+    ///         mem.none(),
+    ///         mem.none(),
     ///     );
     ///     owned(|mem2| {
-    ///         expr.as_mut().set_lexpr(mem2.make_String(Some("oops")).as_node());
+    ///         expr.as_mut().set_lexpr(mem2.make_String(Some("oops")).uncast());
     ///         mem2.make_String(Some("lol"))
     ///     });
     ///     expr
@@ -211,11 +221,11 @@ where
     /// let expr = owned(|mem| {
     ///     let mut expr = mem.make_A_Expr(
     ///         AEXPR_OP,
-    ///         mem.make_List::<()>(&[]),
-    ///         mem.make_unique(Node::None),
-    ///         mem.make_unique(Node::None),
+    ///         mem.empty(),
+    ///         mem.none(),
+    ///         mem.none(),
     ///     );
-    ///     expr.as_mut().set_lexpr(mem.make_String(Some("lexpr")).as_node());
+    ///     expr.as_mut().set_lexpr(mem.make_String(Some("lexpr")).uncast());
     ///     expr
     /// });
     /// assert_eq!(Some("lexpr"), expr.lexpr().as_str());
@@ -271,7 +281,7 @@ where
 
 #[test]
 fn make_empty_list() {
-    let list = owned(|mem| mem.make_List::<Node<'_>>(&[]));
+    let list = owned(|mem| mem.empty());
     assert!(list.as_ptr().is_null());
 }
 
@@ -306,10 +316,10 @@ fn make_complex_node() {
     let a_expr = owned(|mem| {
         mem.make_A_Expr(
             A_Expr_Kind::AEXPR_OP,
-            mem.make_List(&[mem.make_String(Some("="))]),
-            mem.make_ColumnRef(mem.make_List(&[mem.make_String(Some("id"))]))
-                .as_node(),
-            mem.make_A_Const(ConstValue::Integer(1)).as_node(),
+            mem.make_List(&[mem.make_String(Some("=")).uncast()]),
+            mem.make_ColumnRef(mem.make_List(&[mem.make_String(Some("id")).uncast()]))
+                .uncast(),
+            mem.make_A_Const(ConstValue::Integer(1)).uncast(),
         )
     });
 
