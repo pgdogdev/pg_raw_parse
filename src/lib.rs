@@ -76,7 +76,7 @@ impl ops::Deref for ParseResult {
 impl fmt::Debug for ParseResult {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("ParseResult")
-            .field("stmts", &&*self.stmts().collect::<Vec<_>>())
+            .field("tree", &**self)
             .finish_non_exhaustive()
     }
 }

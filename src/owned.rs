@@ -50,9 +50,9 @@ where
 impl<T> fmt::Debug for Owned<T>
 where
     Self: Deref,
-    <Self as Deref>::Target: fmt::Debug,
+    for<'a> &'a <Self as Deref>::Target: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", &*self)
+        (*self).deref().fmt(f)
     }
 }
