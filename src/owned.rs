@@ -1,4 +1,5 @@
 use crate::{FromNodePtr, mem, raw};
+use std::fmt;
 use std::marker::PhantomData;
 use std::ops::Deref;
 
@@ -36,5 +37,15 @@ where
     fn deref(&self) -> &Self::Target {
         // SAFETY: The lifetime cannot outlive self
         unsafe { FromNodePtr::from_raw(self.ptr) }
+    }
+}
+
+impl<T> fmt::Debug for Owned<T>
+where
+    Self: Deref,
+    <Self as Deref>::Target: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", &*self)
     }
 }
