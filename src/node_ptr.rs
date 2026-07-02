@@ -1,4 +1,5 @@
 use crate::raw::{self, NodeTag};
+use generativity::Id;
 use std::ptr::{self, NonNull};
 
 /// [AsNodePtr::as_ptr] must convert back to Self when passed to
@@ -42,4 +43,12 @@ impl<T: FromNodePtr> FromNodePtr for Option<T> {
             // SAFETY: Caller is responsible for making this safe
             unsafe { T::from_ptr(tag, Some(ptr)) })
     }
+}
+
+pub trait FromNodeMut {
+    type MutRef<'a, 'b>;
+
+    /// SAFETY: The caller must provide a valid pointer that was
+    /// allocated onto the MemoryContext referenced by 'a.
+    unsafe fn from_ptr_mut<'a, 'b>(ptr: NonNull<Self>, id: Id<'a>) -> Self::MutRef<'a, 'b>;
 }
