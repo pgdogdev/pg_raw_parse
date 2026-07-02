@@ -271,7 +271,7 @@ impl NodeField {
         self.ty.ty(lifetime)
     }
 
-    fn constructor_ty(&self, lifetime: &syn::Lifetime) -> syn::Type {
+    fn constructor_ty(&self, lifetime: &syn::Lifetime) -> Option<syn::Type> {
         self.ty.constructor_ty(lifetime)
     }
 
@@ -280,7 +280,8 @@ impl NodeField {
 
         let fname = &self.name;
         match self.ty {
-            Private(_) | Primitive(_) => parse_quote!(#fname),
+            Primitive(_) => parse_quote!(#fname),
+            Private(_) => parse_quote!(Default::default()),
             Node | CastNode(_) | List | CastList(_) => parse_quote!(#fname.into_ptr().cast()),
             CString => parse_quote! {
                 #fname
@@ -329,18 +330,18 @@ impl NodeFieldType {
         }
     }
 
-    fn constructor_ty(&self, lifetime: &syn::Lifetime) -> syn::Type {
+    fn constructor_ty(&self, lt: &syn::Lifetime) -> Option<syn::Type> {
         match self {
-            Self::Private(t) | Self::Primitive(t) => t.clone(),
-            Self::Node => parse_quote!(Unique<#lifetime, raw::Node>),
-            Self::CastNode(t) => parse_quote!(Unique<#lifetime, crate::nodes::#t>),
-            Self::List => parse_quote!(Unique<#lifetime, crate::list::NodeList>),
-            Self::CastList(t) => {
-                parse_quote!(Unique<#lifetime, crate::list::CastNodeList<&#lifetime #t>>)
+            Self::Private(_) => None,
+            Self::Primitive(t) => Some(t.clone()),
+            Self::Node => Some(parse_quote!(Unique<#lt, crate::Node<#lt>>)),
+            Self::CastNode(t) => Some(parse_quote!(Unique<#lt, &#lt crate::nodes::#t>)),
+            Self::List | Self::CastList(_) => {
+                Some(parse_quote!(Unique<#lt, &#lt crate::list::NodeList>))
             }
             // Strings get copied in constructors so we can ignore the input LT
-            Self::CString => parse_quote!(Option<&str>),
-            Self::ConstVal => parse_quote!(Option<crate::const_val::ConstValue<#lifetime>>),
+            Self::CString => Some(parse_quote!(Option<&str>)),
+            Self::ConstVal => Some(parse_quote!(Option<crate::const_val::ConstValue<#lt>>)),
         }
     }
 }
@@ -705,10 +706,10 @@ fn generate_make_funcs(
             })
             .collect::<Vec<_>>();
 
-        let fargs = arg_fields.iter().map(|field| -> syn::FnArg {
+        let fargs = arg_fields.iter().filter_map(|field| {
             let fname = &field.name;
-            let fty = field.constructor_ty(&lt);
-            parse_quote!(#fname: #fty)
+            let fty = field.constructor_ty(&lt)?;
+            Some::<syn::FnArg>(parse_quote!(#fname: #fty))
         });
         let farg_exprs = arg_fields.iter().map(|field| field.as_raw_expr());
 
