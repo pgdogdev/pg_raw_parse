@@ -43,7 +43,10 @@ pub struct MemoryToken<'a> {
 
 impl<'a> MemoryToken<'a> {
     #[allow(non_snake_case)]
-    pub fn make_List<T>(self, elems: &[Unique<'a, T>]) -> Unique<'a, &'a crate::list::NodeList> {
+    pub fn make_List<T>(
+        self,
+        elems: &[Unique<'a, T>],
+    ) -> Unique<'a, &'a crate::list::NodeList> {
         if elems.is_empty() {
             Unique(ptr::null_mut(), self.id, PhantomData)
         } else {
@@ -90,6 +93,10 @@ impl<'a, T> Unique<'a, T> {
     /// context.
     pub(crate) fn into_ptr(self) -> *mut raw::Node {
         self.0
+    }
+
+    pub fn as_node(self) -> Unique<'a, crate::Node<'a>> {
+        Unique(self.0, self.1, PhantomData)
     }
 
     #[cfg(test)]
@@ -169,4 +176,31 @@ fn copy_node() {
         mem.make_unique(&*s)
     });
     assert_eq!(Some("hi"), copied_string.sval());
+}
+
+#[test]
+fn make_complex_node() {
+    use crate::nodes::A_Expr_Kind;
+    use crate::{Node, nodes};
+
+    let a_expr = owned(|mem| {
+        // FIXME(sage): Use this to test ColumnRef and A_Const, which we'll
+        // need to manually add
+        mem.make_A_Expr(
+            A_Expr_Kind::AEXPR_OP,
+            mem.make_List(&[mem.make_String(Some("="))]),
+            mem.make_String(Some("id")).as_node(),
+            mem.make_Integer(1).as_node(),
+        )
+    });
+
+    std::assert_matches!(
+        &*a_expr,
+        nodes::A_Expr {
+            kind: A_Expr_Kind::AEXPR_OP,
+            ..
+        } if a_expr.name().iter().map(Node::as_str).eq([Some("=")])
+            && matches!(a_expr.lexpr(), Node::String(s) if s.sval() == Some("id"))
+            && matches!(a_expr.rexpr(), Node::Integer(nodes::Integer { ival: 1, .. }))
+    );
 }
