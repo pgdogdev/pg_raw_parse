@@ -204,7 +204,7 @@ impl NodeField {
                 #[inline]
                 pub fn #fname(&self) -> #ret {
                     // SAFETY: The lifetime is not longer than self
-                    unsafe { crate::FromNodePtr::from_ptr(self.#fname.cast()) }
+                    unsafe { crate::FromNodePtr::from_raw(self.#fname.cast()) }
                 }
             }),
 
@@ -331,17 +331,14 @@ impl NodeFieldType {
     }
 
     fn constructor_ty(&self, lt: &syn::Lifetime) -> Option<syn::Type> {
+        let inner = self.ty(lt);
         match self {
             Self::Private(_) => None,
-            Self::Primitive(t) => Some(t.clone()),
-            Self::Node => Some(parse_quote!(Unique<#lt, crate::Node<#lt>>)),
-            Self::CastNode(t) => Some(parse_quote!(Unique<#lt, &#lt crate::nodes::#t>)),
-            Self::List | Self::CastList(_) => {
-                Some(parse_quote!(Unique<#lt, &#lt crate::list::NodeList>))
-            }
+            Self::Primitive(_) | Self::ConstVal => Some(inner),
+            Self::Node | Self::CastNode(_) | Self::List => Some(parse_quote!(Unique<#lt, #inner>)),
+            Self::CastList(_) => Some(parse_quote!(Unique<#lt, &#lt crate::list::NodeList>)),
             // Strings get copied in constructors so we can ignore the input LT
             Self::CString => Some(parse_quote!(Option<&str>)),
-            Self::ConstVal => Some(parse_quote!(Option<crate::const_val::ConstValue<#lt>>)),
         }
     }
 }
@@ -513,16 +510,18 @@ fn generate_node_structs(
             }
         });
 
+        let tag = s.tag_expr();
         out_file.items.push(parse_quote! {
             impl<'a> crate::FromNodePtr for &'a #sname {
-                unsafe fn from_ptr(ptr: *mut Node) -> Self {
-                    // Caller is responsible for making this safe
-                    unsafe { crate::Node::from_ptr(ptr) }
-                        .try_into()
-                        .unwrap_or_else(|e| {
-                            panic!(concat!("Expected a ", stringify!(#sname), "got {:?}"), e)
-
-                        })
+                unsafe fn from_ptr(tag: NodeTag, ptr: Option<NonNull<Node>>) -> Self {
+                    if tag == #tag {
+                        let p = ptr.expect("Unexpected NULL ptr")
+                            .cast();
+                        // SAFETY: We've checked the tag
+                        unsafe { p.as_ref() }
+                    } else {
+                        panic!(concat!("Expected a ", stringify!(#sname), "got tag {}"), tag)
+                    }
                 }
             }
         });
@@ -582,21 +581,23 @@ fn generate_node_enum(
             /// SAFETY: The caller is responsible for ensuring the provided
             /// lifetime does not outlast the memory context this Node was
             /// allocated in
-            unsafe fn from_ptr(ptr: *mut raw::Node) -> Self {
+            unsafe fn from_ptr(tag: raw::NodeTag, ptr: Option<NonNull<raw::Node>>) -> Self {
                 // SAFETY: PG will never return an invalid Node other than NULL
                 // and the caller is ensuring a valid lifetime
-                unsafe { ptr.as_ref() }.map(|p| {
-                    let tag = p.type_;
-                    match tag {
-                        #(#node_tags => {
-                            // SAFETY: We're checking the tag
-                            Self::#node_names(unsafe { &*ptr.cast_const().cast() })
-                        })*
+                match (tag, ptr) {
+                    (_, None) => Self::None,
+                    #((#node_tags, Some(ptr)) => {
+                        debug_assert!(ptr.cast::<nodes::#node_names>().is_aligned());
                         // SAFETY: We're checking the tag
-                        raw::NodeTag_T_List => Self::NodeList(unsafe { &*ptr.cast_const().cast() }),
-                        _ => Self::Invalid(p),
+                        Self::#node_names(unsafe { ptr.cast().as_ref() })
+                    })*
+                    // SAFETY: We're checking the tag
+                    (raw::NodeTag_T_List, Some(ptr)) => {
+                        debug_assert!(ptr.cast::<list::NodeList>().is_aligned());
+                        Self::NodeList(unsafe { ptr.cast().as_ref() })
                     }
-                }).unwrap_or(Self::None)
+                    (_, Some(p)) => Self::Invalid(unsafe { p.as_ref() }),
+                }
             }
         }
     });

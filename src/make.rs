@@ -43,10 +43,7 @@ pub struct MemoryToken<'a> {
 
 impl<'a> MemoryToken<'a> {
     #[allow(non_snake_case)]
-    pub fn make_List<T>(
-        self,
-        elems: &[Unique<'a, T>],
-    ) -> Unique<'a, &'a crate::list::NodeList> {
+    pub fn make_List<T>(self, elems: &[Unique<'a, T>]) -> Unique<'a, &'a crate::list::NodeList> {
         if elems.is_empty() {
             Unique(ptr::null_mut(), self.id, PhantomData)
         } else {
@@ -105,7 +102,7 @@ impl<'a, T> Unique<'a, T> {
         T: FromNodePtr,
     {
         // SAFETY: Always a valid pointer
-        unsafe { T::from_ptr(self.into_ptr()) }
+        unsafe { T::from_raw(self.into_ptr()) }
     }
 }
 

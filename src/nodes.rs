@@ -1,7 +1,8 @@
 #![allow(non_snake_case)]
 use crate::const_val::ConstValue;
-use crate::raw::{__IncompleteArrayField, List, Node, ValUnion};
+use crate::raw::{self, __IncompleteArrayField, List, Node, ValUnion};
 use std::fmt;
+use std::ptr::NonNull;
 
 pub use crate::raw::{A_Expr_Kind, BoolExprType, SortByDir, SortByNulls};
 

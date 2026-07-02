@@ -1,5 +1,5 @@
-use crate::raw;
-use std::ptr;
+use crate::raw::{self, NodeTag};
+use std::ptr::{self, NonNull};
 
 /// [AsNodePtr::as_ptr] must convert back to Self when passed to
 /// [FromNodePtr::from_ptr]
@@ -21,18 +21,25 @@ unsafe impl<T: AsNodePtr> AsNodePtr for Option<T> {
     }
 }
 
-pub trait FromNodePtr {
-    /// SAFETY: The caller must provide a valid Node pointer or NULL
-    unsafe fn from_ptr(ptr: *mut raw::Node) -> Self;
+pub trait FromNodePtr: Sized {
+    /// SAFETY: The caller must provide a valid pointer or NULL
+    unsafe fn from_raw(ptr: *mut raw::Node) -> Self {
+        let ptr = NonNull::new(ptr);
+        // SAFETY: Caller is responsible for making this safe
+        unsafe {
+            let tag = ptr.map(|p| p.as_ref().type_).unwrap_or_default();
+            Self::from_ptr(tag, ptr)
+        }
+    }
+
+    /// SAFETY: The caller must provide a valid node pointer
+    unsafe fn from_ptr(tag: NodeTag, ptr: Option<NonNull<raw::Node>>) -> Self;
 }
 
 impl<T: FromNodePtr> FromNodePtr for Option<T> {
-    unsafe fn from_ptr(ptr: *mut raw::Node) -> Self {
-        if ptr.is_null() {
-            None
-        } else {
+    unsafe fn from_ptr(tag: NodeTag, ptr: Option<NonNull<raw::Node>>) -> Self {
+        ptr.map(|ptr|
             // SAFETY: Caller is responsible for making this safe
-            Some(unsafe { T::from_ptr(ptr) })
-        }
+            unsafe { T::from_ptr(tag, Some(ptr)) })
     }
 }

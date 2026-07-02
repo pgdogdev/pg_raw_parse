@@ -29,7 +29,7 @@ where
 
     fn deref(&self) -> &Self::Target {
         // SAFETY: The lifetime cannot outlive self
-        unsafe { FromNodePtr::from_ptr(self.ptr) }
+        unsafe { FromNodePtr::from_raw(self.ptr) }
     }
 }
 

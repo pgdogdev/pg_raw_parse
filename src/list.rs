@@ -107,9 +107,9 @@ unsafe impl<'a> AsNodePtr for &'a NodeList {
 }
 
 impl<'a> FromNodePtr for &'a NodeList {
-    unsafe fn from_ptr(ptr: *mut raw::Node) -> Self {
+    unsafe fn from_ptr(tag: raw::NodeTag, ptr: Option<NonNull<raw::Node>>) -> Self {
         // SAFETY: Caller is responsible for making this safe
-        unsafe { Node::from_ptr(ptr) }.expect_node_list()
+        unsafe { Node::from_ptr(tag, ptr) }.expect_node_list()
     }
 }
 
@@ -135,7 +135,7 @@ impl<'a, T: FromNodePtr> Iterator for NodeListIter<'a, T> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         // SAFETY: 'a always outlives the Node
-        self.iter.next().map(|p| unsafe { T::from_ptr(*p) })
+        self.iter.next().map(|p| unsafe { T::from_raw(*p) })
     }
 
     #[inline]
@@ -155,7 +155,7 @@ impl<'a, T: FromNodePtr> DoubleEndedIterator for NodeListIter<'a, T> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         // SAFETY: 'a always outlives the Node
-        self.iter.next_back().map(|p| unsafe { T::from_ptr(*p) })
+        self.iter.next_back().map(|p| unsafe { T::from_raw(*p) })
     }
 }
 
@@ -256,8 +256,8 @@ where
 }
 
 impl<'a, T> FromNodePtr for &'a CastNodeList<T> {
-    unsafe fn from_ptr(ptr: *mut raw::Node) -> Self {
+    unsafe fn from_ptr(tag: raw::NodeTag, ptr: Option<NonNull<raw::Node>>) -> Self {
         // SAFETY: Caller is responsible for making this safe
-        unsafe { <&'a NodeList>::from_ptr(ptr) }.cast()
+        unsafe { <&'a NodeList>::from_ptr(tag, ptr) }.cast()
     }
 }

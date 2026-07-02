@@ -1,4 +1,5 @@
 use crate::{AsNodePtr, FromNodePtr, list, nodes, raw};
+use std::ptr::NonNull;
 
 include!(concat!(env!("OUT_DIR"), "/node_enum_raw.rs"));
 
@@ -40,7 +41,7 @@ fn test_node_as_list() {
         let int = mem.make_Integer(1);
         mem.make_List(&[int])
     });
-    let node = unsafe { Node::from_ptr(list.as_ptr()) };
+    let node = Node::NodeList(&list);
     let actual = node.expect_node_list().into_iter().collect::<Vec<_>>();
     std::assert_matches!(actual[..], [Node::Integer(nodes::Integer { ival: 1, .. })]);
 }

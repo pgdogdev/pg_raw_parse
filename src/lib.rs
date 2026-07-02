@@ -69,9 +69,7 @@ impl ParseResult {
     pub fn raw_stmts(&self) -> &list::CastNodeList<&nodes::RawStmt> {
         // SAFETY: The memory context of the tree is guaranteed to outlive
         // the lifetime of self. We are returning a lifetime shorter than self.
-        unsafe { Node::from_ptr(self.tree.tree.cast()) }
-            .expect_node_list()
-            .cast()
+        unsafe { FromNodePtr::from_raw(self.tree.tree.cast()) }
     }
 }
 

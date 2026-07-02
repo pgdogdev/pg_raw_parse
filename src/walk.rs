@@ -160,7 +160,7 @@ where
     // walk_expression_tree
     let (cb, err) = unsafe { &mut *(context as *mut (F, raw::Error)) };
     // SAFETY: PG always calls this with a valid pointer
-    let node = unsafe { Node::from_ptr(node) };
+    let node = unsafe { Node::from_raw(node) };
     match node {
         Node::None => false,
         node => match cb(node) {
@@ -241,6 +241,6 @@ fn error_is_set_after_recursion() {
         initial_elements: raw::__IncompleteArrayField::new(),
     };
     // SAFETY: It's a stack pointer. It's fine.
-    let node = unsafe { Node::from_ptr(&raw mut list as *mut raw::Node) };
+    let node = unsafe { Node::from_raw((&raw mut list).cast()) };
     walk(node, |_| ());
 }
