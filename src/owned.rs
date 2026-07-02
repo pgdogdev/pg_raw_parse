@@ -11,6 +11,12 @@ pub struct Owned<T> {
     _marker: PhantomData<T>,
 }
 
+// SAFETY: No reason this couldn't be sent to another thread
+unsafe impl<T> Send for Owned<T> {}
+// SAFETY: We don't provide a way to re-enter the memory context after this is
+// constructed.
+unsafe impl<T> Sync for Owned<T> {}
+
 impl<T> Owned<T> {
     pub(crate) fn new(mem: mem::MemoryContext, ptr: *mut raw::Node) -> Self {
         Self {

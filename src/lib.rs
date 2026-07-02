@@ -57,12 +57,6 @@ pub struct ParseResult {
     tree: Owned<StmtList>,
 }
 
-// SAFETY: No reason this couldn't be sent to another thread
-unsafe impl Send for ParseResult {}
-// SAFETY: As long as we are don't try to enter the memory context after this
-// is constructed, we're all good
-unsafe impl Sync for ParseResult {}
-
 impl ParseResult {
     /// Returns the statements that were parsed
     pub fn stmts(&self) -> impl Iterator<Item = Node<'_>> {
