@@ -1,4 +1,5 @@
 #![allow(non_snake_case)]
+use crate::ConstructableNode;
 use crate::const_val::ConstValue;
 use crate::make::Unique;
 use crate::raw::{self, __IncompleteArrayField, List, Node, ValUnion};

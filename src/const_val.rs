@@ -5,6 +5,7 @@ use crate::raw::{
     NodeTag_T_String, ValUnion,
 };
 use std::ffi::c_int;
+use std::ptr;
 use std::str::FromStr;
 
 #[repr(u32)]
@@ -91,6 +92,15 @@ impl<'a> ConstValue<'a> {
             _ => None,
         }
     }
+
+    pub(crate) fn tag(&self) -> u32 {
+        if let Self::Unrecognized(tag) = self {
+            *tag
+        } else {
+            // SAFETY: https://doc.rust-lang.org/reference/items/enumerations.html#pointer-casting
+            unsafe { *ptr::from_ref(self).cast() }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -115,7 +125,10 @@ mod tests {
 
         assert_eq!(Some(1), smallval.numeric_value::<i32>());
         assert_eq!(Some(1.0), smallval.numeric_value::<f64>());
+        assert_eq!(NodeTag_T_Integer, smallval.tag());
         assert_eq!(Some(1234567890), bigval.numeric_value::<i64>());
+        assert_eq!(NodeTag_T_Float, bigval.tag());
         assert_eq!(None, boolval.numeric_value::<i32>());
+        assert_eq!(NodeTag_T_Boolean, boolval.tag());
     }
 }

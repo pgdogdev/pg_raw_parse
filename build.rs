@@ -123,6 +123,7 @@ fn main() {
         .allowlist_item("wrapped_pnstrdup")
         .allowlist_item("list_copy")
         .allowlist_item("wrapped_copy_object")
+        .allowlist_item("newNode")
         .wrap_static_fns(true)
         .wrap_static_fns_path(out_dir.join("wrap_static_fns"));
     for struct_name in &node_structs {
@@ -183,10 +184,10 @@ struct NodeField {
 
 impl NodeField {
     fn vis(&self) -> syn::Visibility {
-        if let NodeFieldType::Primitive(_) = &self.ty {
-            parse_quote!(pub)
-        } else {
-            syn::Visibility::Inherited
+        match self.ty {
+            NodeFieldType::Primitive(_) => parse_quote!(pub),
+            NodeFieldType::CString | NodeFieldType::ConstVal => parse_quote!(pub(crate)),
+            _ => syn::Visibility::Inherited,
         }
     }
 
@@ -307,7 +308,7 @@ impl NodeField {
             Node | CastNode(_) | List | CastList(_) => parse_quote!(#fname.into_ptr().cast()),
             CString => parse_quote! {
                 #fname
-                    .map(|s| raw::wrapped_pnstrdup(s.as_ptr().cast(), s.len()))
+                    .map(|s| self.copy_string(s))
                     .unwrap_or(ptr::null_mut())
             },
             ConstVal => parse_quote!(compile_error!(
@@ -535,9 +536,15 @@ fn generate_node_structs(
 
         let tag = s.tag_expr();
         out_file.items.push(parse_quote! {
+            impl crate::ConstructableNode for #sname {
+                const TAG: NodeTag = #tag;
+            }
+        });
+
+        out_file.items.push(parse_quote! {
             impl<'a> crate::FromNodePtr for &'a #sname {
                 unsafe fn from_ptr(tag: NodeTag, ptr: Option<NonNull<Node>>) -> Self {
-                    if tag == #tag {
+                    if tag == #sname::TAG {
                         let p = ptr.expect("Unexpected NULL ptr")
                             .cast();
                         // SAFETY: We've checked the tag
@@ -593,6 +600,11 @@ fn generate_node_structs(
         out_file.items.push(parse_quote! {
             impl<'a, 'b> #smut<'a, 'b> {
                 #(#setters)*
+
+                #[allow(unused)]
+                pub(crate) fn into_inner(self) -> &'b mut #sname {
+                    self.mut_ref
+                }
             }
         });
     }
@@ -612,14 +624,9 @@ fn generate_node_enum(
     };
 
     let node_names = node_structs.iter().map(|s| &s.name).collect::<Vec<_>>();
-    let node_tags = node_structs
-        .iter()
-        .map(|s| s.tag_expr())
-        .collect::<Vec<_>>();
     let enum_variants = node_names
         .iter()
-        .zip(&node_tags)
-        .map::<syn::Variant, _>(|(i, tag)| parse_quote!(#i(&'a nodes::#i) = #tag));
+        .map::<syn::Variant, _>(|i| parse_quote!(#i(&'a nodes::#i) = nodes::#i::TAG));
     out_file.items.push(parse_quote! {
         #[allow(nonstandard_style)]
         #[repr(u32)]
@@ -645,7 +652,7 @@ fn generate_node_enum(
                 // and the caller is ensuring a valid lifetime
                 match (tag, ptr) {
                     (_, None) => Self::None,
-                    #((#node_tags, Some(ptr)) => {
+                    #((nodes::#node_names::TAG, Some(ptr)) => {
                         debug_assert!(ptr.cast::<nodes::#node_names>().is_aligned());
                         // SAFETY: We're checking the tag
                         Self::#node_names(unsafe { ptr.cast().as_ref() })
