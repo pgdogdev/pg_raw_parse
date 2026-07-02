@@ -38,19 +38,23 @@ pub fn parse(sql: &str) -> Result<ParseResult, error::Error> {
     // Any warnings that were emitted during parsing went into a malloc'd
     // buffer, so we need to construct this even if we're going to return Err
     // to ensure that buffer is freed.
-    let tree = TreeAndWarnings {
-        tree: c_result.tree,
+    let warnings = Warnings {
         stderr_buffer: ptr::NonNull::new(c_result.stderr_buffer),
     };
     match ptr::NonNull::new(c_result.error) {
         Some(e) => Err(Error::from_pg_query_error(e)),
-        None => Ok(ParseResult { tree, _mem: mem }),
+        None => Ok(ParseResult {
+            _warnings: warnings,
+            tree: Owned::new(mem, c_result.tree.cast()),
+        }),
     }
 }
 
+pub type StmtList = list::CastNodeList<nodes::RawStmt>;
+
 pub struct ParseResult {
-    tree: TreeAndWarnings,
-    _mem: mem::MemoryContext,
+    _warnings: Warnings,
+    tree: Owned<StmtList>,
 }
 
 // SAFETY: No reason this couldn't be sent to another thread
@@ -66,10 +70,14 @@ impl ParseResult {
     }
 
     /// Returns the raw statements that were parsed
-    pub fn raw_stmts(&self) -> &list::CastNodeList<&nodes::RawStmt> {
-        // SAFETY: The memory context of the tree is guaranteed to outlive
-        // the lifetime of self. We are returning a lifetime shorter than self.
-        unsafe { FromNodePtr::from_raw(self.tree.tree.cast()) }
+    pub fn raw_stmts(&self) -> &StmtList {
+        &self.tree
+    }
+
+    /// Returns the list of raw statements that were parsed, discarding any
+    /// warnings
+    pub fn into_inner(self) -> Owned<StmtList> {
+        self.tree
     }
 }
 
@@ -81,12 +89,11 @@ impl fmt::Debug for ParseResult {
     }
 }
 
-struct TreeAndWarnings {
-    tree: *mut raw::List,
+struct Warnings {
     stderr_buffer: Option<ptr::NonNull<ffi::c_char>>,
 }
 
-impl Drop for TreeAndWarnings {
+impl Drop for Warnings {
     fn drop(&mut self) {
         // tree was created with palloc, so is managed by postgres.
         // stderr_buffer was malloc'd and must be freed

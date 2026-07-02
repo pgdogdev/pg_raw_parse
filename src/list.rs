@@ -235,9 +235,9 @@ const _: () = {
 
 impl<'a, T> IntoIterator for &'a CastNodeList<T>
 where
-    NodeListIter<'a, T>: Iterator,
+    NodeListIter<'a, &'a T>: Iterator,
 {
-    type IntoIter = NodeListIter<'a, T>;
+    type IntoIter = NodeListIter<'a, &'a T>;
     type Item = <Self::IntoIter as Iterator>::Item;
 
     fn into_iter(self) -> Self::IntoIter {

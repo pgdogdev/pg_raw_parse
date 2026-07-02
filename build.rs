@@ -347,7 +347,7 @@ impl NodeFieldType {
             Self::Node => parse_quote!(crate::Node<#lifetime>),
             Self::CastNode(t) => parse_quote!(Option<&#lifetime crate::nodes::#t>),
             Self::List => parse_quote!(&#lifetime crate::list::NodeList),
-            Self::CastList(t) => parse_quote!(&#lifetime crate::list::CastNodeList<&#lifetime #t>),
+            Self::CastList(t) => parse_quote!(&#lifetime crate::list::CastNodeList<#t>),
             Self::CString => parse_quote!(Option<&#lifetime str>),
             Self::ConstVal => parse_quote!(Option<crate::const_val::ConstValue<#lifetime>>),
         }
