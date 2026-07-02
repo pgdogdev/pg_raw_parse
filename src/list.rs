@@ -96,6 +96,7 @@ impl fmt::Debug for NodeList {
 // SAFETY: We are returning NULL for empty lists, or a valid pointer
 unsafe impl<'a> AsNodePtr for &'a NodeList {
     type ConvertLifetime<'b> = &'b NodeList;
+    type List = NodeList;
 
     fn as_ptr(self) -> *mut raw::Node {
         if self.is_empty() {

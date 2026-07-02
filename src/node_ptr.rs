@@ -6,6 +6,7 @@ use std::ptr::{self, NonNull};
 /// [FromNodePtr::from_ptr]
 pub unsafe trait AsNodePtr {
     type ConvertLifetime<'b>;
+    type List;
 
     fn as_ptr(self) -> *mut raw::Node;
 }
@@ -13,6 +14,7 @@ pub unsafe trait AsNodePtr {
 // SAFETY: If &T is a node, Option<&T> is also a Node
 unsafe impl<T: AsNodePtr> AsNodePtr for Option<T> {
     type ConvertLifetime<'b> = Option<T::ConvertLifetime<'b>>;
+    type List = T::List;
 
     fn as_ptr(self) -> *mut raw::Node {
         match self {

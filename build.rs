@@ -358,8 +358,9 @@ impl NodeFieldType {
         match self {
             Self::Private(_) => None,
             Self::Primitive(_) | Self::ConstVal => Some(inner),
-            Self::Node | Self::CastNode(_) | Self::List => Some(parse_quote!(Unique<#lt, #inner>)),
-            Self::CastList(_) => Some(parse_quote!(Unique<#lt, &#lt crate::list::NodeList>)),
+            Self::Node | Self::CastNode(_) | Self::List | Self::CastList(_) => {
+                Some(parse_quote!(Unique<#lt, #inner>))
+            }
             // Strings get copied in constructors so we can ignore the input LT
             Self::CString => Some(parse_quote!(Option<&str>)),
         }
@@ -572,6 +573,7 @@ fn generate_node_structs(
             // SAFETY: Self is a type of node
             unsafe impl<'a> crate::AsNodePtr for &'a #sname {
                 type ConvertLifetime<'b> = &'b #sname;
+                type List = crate::list::CastNodeList<#sname>;
 
                 fn as_ptr(self) -> *mut Node {
                     std::ptr::from_ref(self).cast_mut().cast()
@@ -672,6 +674,7 @@ fn generate_node_enum(
         // SAFETY: We are returning the inner pointer from as_ptr
         unsafe impl<'a> AsNodePtr for Node<'a> {
             type ConvertLifetime<'b> = Node<'b>;
+            type List = crate::list::NodeList;
 
             fn as_ptr(self) -> *mut raw::Node {
                 match self {

@@ -39,7 +39,7 @@ fn test_node_as_list() {
 
     let list = owned(|mem| {
         let int = mem.make_Integer(1);
-        mem.make_List(&[int])
+        mem.make_List(&[int.uncast()])
     });
     let node = Node::NodeList(&list);
     let actual = node.expect_node_list().into_iter().collect::<Vec<_>>();

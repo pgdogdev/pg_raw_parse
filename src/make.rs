@@ -43,35 +43,6 @@ pub struct MemoryToken<'a> {
 
 impl<'a> MemoryToken<'a> {
     #[allow(non_snake_case)]
-    pub fn make_List<T>(self, elems: &[Unique<'a, T>]) -> Unique<'a, &'a NodeList> {
-        if elems.is_empty() {
-            Unique(ptr::null_mut(), self.id, PhantomData)
-        } else {
-            let list_to_copy = raw::List {
-                type_: raw::NodeTag_T_List,
-                length: elems.len() as _,
-                max_length: elems.len() as _,
-                elements: elems.as_ptr().cast_mut().cast(),
-                initial_elements: raw::__IncompleteArrayField::new(),
-            };
-            // SAFETY: The given closure never panics, we're passing valid pointers
-            let ptr = unsafe { self.mem.within(|| raw::list_copy(&raw const list_to_copy)) };
-            // SAFETY: The returned pointer is always a palloc'd list pointer
-            Unique(ptr.cast(), self.id, PhantomData)
-        }
-    }
-
-    #[allow(non_snake_case)]
-    pub fn make_ColumnRef(
-        self,
-        fields: Unique<'a, &'a NodeList>,
-    ) -> Unique<'a, &'a nodes::ColumnRef> {
-        let mut node = self.make_node::<nodes::ColumnRef>();
-        node.as_mut().set_fields(fields);
-        node
-    }
-
-    #[allow(non_snake_case)]
     pub fn make_A_Const(self, val: ConstValue) -> Unique<'a, &'a nodes::A_Const> {
         use ConstValue::*;
 
@@ -97,10 +68,62 @@ impl<'a> MemoryToken<'a> {
     }
 
     #[allow(non_snake_case)]
+    pub fn make_ColumnRef(
+        self,
+        fields: Unique<'a, &'a NodeList>,
+    ) -> Unique<'a, &'a nodes::ColumnRef> {
+        let mut node = self.make_node::<nodes::ColumnRef>();
+        node.as_mut().set_fields(fields);
+        node
+    }
+
+    #[allow(non_snake_case)]
+    pub fn make_List<T: AsNodePtr>(self, elems: &[Unique<'a, T>]) -> Unique<'a, &'a T::List> {
+        if elems.is_empty() {
+            Unique(ptr::null_mut(), self.id, PhantomData)
+        } else {
+            let list_to_copy = raw::List {
+                type_: raw::NodeTag_T_List,
+                length: elems.len() as _,
+                max_length: elems.len() as _,
+                elements: elems.as_ptr().cast_mut().cast(),
+                initial_elements: raw::__IncompleteArrayField::new(),
+            };
+            // SAFETY: The given closure never panics, we're passing valid pointers
+            let ptr = unsafe { self.mem.within(|| raw::list_copy(&raw const list_to_copy)) };
+            // SAFETY: The returned pointer is always a palloc'd list pointer
+            Unique(ptr.cast(), self.id, PhantomData)
+        }
+    }
+
+    #[allow(non_snake_case)]
     pub fn make_NULL(self) -> Unique<'a, &'a nodes::A_Const> {
         let mut node = self.make_node::<nodes::A_Const>();
         node.as_mut().into_inner().isnull = true;
         node
+    }
+
+    #[allow(non_snake_case)]
+    pub fn make_RawStmt(self, stmt: Unique<'a, Node<'a>>) -> Unique<'a, &'a nodes::RawStmt> {
+        let mut raw_stmt = self.make_node::<nodes::RawStmt>();
+        raw_stmt.as_mut().set_stmt(stmt);
+        raw_stmt
+    }
+
+    #[allow(non_snake_case)]
+    pub fn make_ResTarget(
+        self,
+        name: Option<&str>,
+        indirection: Unique<'a, &'a NodeList>,
+        val: Unique<'a, Node<'a>>,
+    ) -> Unique<'a, &'a nodes::ResTarget> {
+        let mut res_target = self.make_node::<nodes::ResTarget>();
+        if let Some(name) = name {
+            res_target.as_mut().into_inner().name = self.copy_string(name);
+        }
+        res_target.as_mut().set_indirection(indirection);
+        res_target.as_mut().set_val(val);
+        Unique(res_target.into_ptr(), self.id, PhantomData)
     }
 
     /// Performs a deep copy of the given node onto this memory context,
@@ -334,4 +357,20 @@ fn make_complex_node() {
             && matches!(a_expr.rexpr(), Node::A_Const(c)
                 if c.val().and_then(|c| c.numeric_value::<i32>()) == Some(1))
     );
+}
+
+#[test]
+fn make_node_with_cast_list() {
+    let stmt = owned(|mem| {
+        let mut select_stmt = mem.make_node::<nodes::SelectStmt>();
+        let list = mem.make_List(&[mem.make_ResTarget(
+            None,
+            mem.empty(),
+            mem.make_A_Const(ConstValue::Integer(1)).uncast(),
+        )]);
+        select_stmt.as_mut().set_targetList(list);
+        mem.make_RawStmt(select_stmt.uncast())
+    });
+
+    assert_eq!("SELECT 1", crate::deparse(&stmt).unwrap().as_str());
 }
