@@ -248,6 +248,19 @@ impl NodeField {
         }
     }
 
+    fn setter_method(&self, self_expr: syn::Expr, id_lt: syn::Lifetime) -> Option<syn::ImplItem> {
+        let fname = &self.name;
+        let func_name = syn::Ident::new(&format!("set_{}", fname), fname.span());
+        let ty = self.setter_ty(&id_lt)?;
+        let set_expr = self.as_raw_expr();
+        Some(parse_quote! {
+            #[inline]
+            pub fn #func_name(&mut self, #fname: #ty) {
+                #self_expr.#fname = #set_expr;
+            }
+        })
+    }
+
     fn debug_expr(&self, debug_expr: syn::Expr) -> syn::Expr {
         use NodeFieldType::*;
 
@@ -273,6 +286,15 @@ impl NodeField {
 
     fn constructor_ty(&self, lifetime: &syn::Lifetime) -> Option<syn::Type> {
         self.ty.constructor_ty(lifetime)
+    }
+
+    fn setter_ty(&self, lifetime: &syn::Lifetime) -> Option<syn::Type> {
+        use NodeFieldType::*;
+
+        match self.ty {
+            Private(_) | Primitive(_) | CString | ConstVal => None,
+            _ => self.constructor_ty(lifetime),
+        }
     }
 
     fn as_raw_expr(&self) -> syn::Expr {
@@ -436,6 +458,7 @@ fn generate_node_structs(
     for s in &node_structs {
         let sattrs = &s.attrs;
         let sname = &s.name;
+        let smut = syn::Ident::new(&format!("{sname}Mut"), sname.span());
 
         for f in &s.fields {
             if let NodeFieldType::CastNode(t) = &f.ty
@@ -527,6 +550,18 @@ fn generate_node_structs(
         });
 
         out_file.items.push(parse_quote! {
+            impl crate::FromNodeMut for #sname {
+                type MutRef<'a, 'b> = #smut<'a, 'b>;
+
+                unsafe fn from_ptr_mut<'a, 'b>(mut ptr: NonNull<Self>, id: Id<'a>) -> Self::MutRef<'a, 'b> {
+                    // SAFETY: Caller is responsible for making this safe
+                    let mut_ref = unsafe { ptr.as_mut() };
+                    #smut { id, mut_ref }
+                }
+            }
+        });
+
+        out_file.items.push(parse_quote! {
             // SAFETY: Self is a type of node
             unsafe impl<'a> crate::AsNodePtr for &'a #sname {
                 type ConvertLifetime<'b> = &'b #sname;
@@ -534,6 +569,30 @@ fn generate_node_structs(
                 fn as_ptr(self) -> *mut Node {
                     std::ptr::from_ref(self).cast_mut().cast()
                 }
+            }
+        });
+
+        out_file.items.push(parse_quote! {
+            #[allow(non_camel_case_types)]
+            pub struct #smut<'a, 'b> {
+                #[allow(unused)]
+                id: Id<'a>,
+                // FIXME(sage): This is unused for structs with only primitive
+                // fields. We either need to generate setter functions for them
+                // or determine if we can impl DerefMut for this type safely
+                // (e.g. in a way that prevents `mem::swap`)
+                #[allow(unused)]
+                mut_ref: &'b mut #sname,
+            }
+        });
+
+        let setters = s
+            .fields
+            .iter()
+            .filter_map(|f| f.setter_method(parse_quote!(self.mut_ref), parse_quote!('a)));
+        out_file.items.push(parse_quote! {
+            impl<'a, 'b> #smut<'a, 'b> {
+                #(#setters)*
             }
         });
     }

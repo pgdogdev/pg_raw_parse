@@ -21,7 +21,7 @@ pub use crate::error::{Error, Result};
 pub use crate::node_enum::Node;
 pub use crate::owned::Owned;
 
-pub(crate) use node_ptr::{AsNodePtr, FromNodePtr};
+pub(crate) use node_ptr::{AsNodePtr, FromNodeMut, FromNodePtr};
 
 pub fn parse(sql: &str) -> Result<ParseResult, error::Error> {
     let mem = mem::MemoryContext::new(c"pg_raw_parse");

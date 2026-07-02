@@ -2,11 +2,11 @@
 use crate::FromNodePtr;
 use crate::mem::MemoryContext;
 use crate::raw::{self, *};
-use crate::{AsNodePtr, Owned};
+use crate::{AsNodePtr, FromNodeMut, Node, Owned};
 use generativity::Id;
 use std::any::type_name;
 use std::marker::PhantomData;
-use std::ptr;
+use std::ptr::{self, NonNull};
 
 include!(concat!(env!("OUT_DIR"), "/make_funcs_raw.rs"));
 
@@ -92,7 +92,8 @@ impl<'a, T> Unique<'a, T> {
         self.0
     }
 
-    pub fn as_node(self) -> Unique<'a, crate::Node<'a>> {
+    /// Erase the concrete type, returning a unique [`Node<'a>`]
+    pub fn as_node(self) -> Unique<'a, Node<'a>> {
         Unique(self.0, self.1, PhantomData)
     }
 
@@ -103,6 +104,60 @@ impl<'a, T> Unique<'a, T> {
     {
         // SAFETY: Always a valid pointer
         unsafe { T::from_raw(self.into_ptr()) }
+    }
+}
+
+impl<'a, T> Unique<'a, &'a T>
+where
+    T: FromNodeMut,
+{
+    /// Get a mutable reference to the inner node, preventing any assignments
+    /// that would mix memory contexts. Panics if called on a null pointer
+    ///
+    /// ```compile_fail
+    /// use pg_raw_parse::make::*;
+    /// use pg_raw_parse::nodes::A_Expr_Kind::*;
+    /// use pg_raw_parse::Node;
+    ///
+    /// owned(|mem| {
+    ///     let mut expr = mem.make_A_Expr(
+    ///         AEXPR_OP,
+    ///         mem.make_List::<()>(&[]),
+    ///         mem.make_unique(Node::None),
+    ///         mem.make_unique(Node::None),
+    ///     );
+    ///     owned(|mem2| {
+    ///         expr.as_mut().set_lexpr(mem2.make_String(Some("oops")).as_node());
+    ///         mem2.make_String(Some("lol"))
+    ///     });
+    ///     expr
+    /// });
+    /// ```
+    ///
+    /// ```
+    /// use pg_raw_parse::make::*;
+    /// use pg_raw_parse::nodes::A_Expr_Kind::*;
+    /// use pg_raw_parse::Node;
+    ///
+    /// let expr = owned(|mem| {
+    ///     let mut expr = mem.make_A_Expr(
+    ///         AEXPR_OP,
+    ///         mem.make_List::<()>(&[]),
+    ///         mem.make_unique(Node::None),
+    ///         mem.make_unique(Node::None),
+    ///     );
+    ///     expr.as_mut().set_lexpr(mem.make_String(Some("lexpr")).as_node());
+    ///     expr
+    /// });
+    /// assert_eq!(Some("lexpr"), expr.lexpr().as_str());
+    /// std::assert_matches!(expr.rexpr(), Node::None);
+    /// ```
+    pub fn as_mut<'b>(&'b mut self) -> T::MutRef<'a, 'b> {
+        let ptr = NonNull::new(self.0)
+            .expect("as_mut called on a NULL pointer")
+            .cast();
+        // SAFETY: This was always constructed with a valid pointer
+        unsafe { T::from_ptr_mut(ptr, self.1) }
     }
 }
 
@@ -147,13 +202,13 @@ where
 
 #[test]
 fn make_empty_list() {
-    let list = owned(|mem| mem.make_List::<crate::Node<'_>>(&[]));
+    let list = owned(|mem| mem.make_List::<Node<'_>>(&[]));
     assert!(list.as_ptr().is_null());
 }
 
 #[test]
 fn copy_null_pointer() {
-    let none_node = crate::Node::None;
+    let none_node = Node::None;
     let empty_list = &crate::list::EMPTY_LIST;
 
     let copy_list = owned(|mem| {
@@ -168,7 +223,7 @@ fn copy_null_pointer() {
 fn copy_node() {
     let s = owned(|mem| mem.make_String(Some("hi")));
     let copied_string = owned(|mem| {
-        let copied_node = mem.make_unique(crate::Node::String(&*s));
+        let copied_node = mem.make_unique(Node::String(&*s));
         assert_eq!(Some("hi"), copied_node.into_inner().as_str());
         mem.make_unique(&*s)
     });
