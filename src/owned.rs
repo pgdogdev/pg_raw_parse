@@ -28,6 +28,13 @@ impl<T> Owned<T> {
     }
 }
 
+impl Owned<crate::StmtList> {
+    /// Returns the statements in this list
+    pub fn stmts(&self) -> impl Iterator<Item = crate::Node<'_>> {
+        self.iter().map(|s| s.stmt())
+    }
+}
+
 impl<T> Deref for Owned<T>
 where
     for<'a> &'a T: FromNodePtr,

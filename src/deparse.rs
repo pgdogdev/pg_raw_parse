@@ -44,7 +44,7 @@ pub fn deparse(stmt: &nodes::RawStmt) -> Result<DeparseResult> {
 fn test_deparse() {
     fn run_test(query: &str) {
         let result = crate::parse(query).unwrap();
-        let stmt = result.raw_stmts().first().unwrap();
+        let stmt = result.first().unwrap();
         let deparsed = deparse(stmt).unwrap();
 
         assert_eq!(query, deparsed.as_str());

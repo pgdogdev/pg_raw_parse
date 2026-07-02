@@ -1,5 +1,5 @@
 #![cfg_attr(feature = "field_offset_assertions", feature(offset_of_enum))]
-use std::{ffi, fmt, ptr};
+use std::{ffi, fmt, ops, ptr};
 
 pub mod const_val;
 mod deparse;
@@ -58,20 +58,18 @@ pub struct ParseResult {
 }
 
 impl ParseResult {
-    /// Returns the statements that were parsed
-    pub fn stmts(&self) -> impl Iterator<Item = Node<'_>> {
-        self.raw_stmts().into_iter().map(|s| s.stmt())
-    }
-
-    /// Returns the raw statements that were parsed
-    pub fn raw_stmts(&self) -> &StmtList {
-        &self.tree
-    }
-
     /// Returns the list of raw statements that were parsed, discarding any
     /// warnings
     pub fn into_inner(self) -> Owned<StmtList> {
         self.tree
+    }
+}
+
+impl ops::Deref for ParseResult {
+    type Target = Owned<StmtList>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.tree
     }
 }
 
