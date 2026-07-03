@@ -1,4 +1,4 @@
-use crate::list::NodeList;
+use crate::list::{CastNodeList, NodeList};
 use crate::mem::MemoryContext;
 use crate::raw::{self, *};
 use crate::{AsNodePtr, ConstValue, ConstructableNode, FromNodeMut, Node, Owned, nodes};
@@ -78,6 +78,20 @@ impl<'a> MemoryToken<'a> {
     }
 
     #[allow(non_snake_case)]
+    pub fn make_CommonTableExpr(
+        self,
+        ctename: &str,
+        aliascolnames: Unique<'a, &'a NodeList>,
+        ctequery: Unique<'a, Node<'a>>,
+    ) -> Unique<'a, &'a nodes::CommonTableExpr> {
+        let mut cte = self.make_node::<nodes::CommonTableExpr>();
+        cte.as_mut().into_inner().ctename = self.copy_string(ctename);
+        cte.as_mut().set_aliascolnames(aliascolnames);
+        cte.as_mut().set_ctequery(ctequery);
+        cte
+    }
+
+    #[allow(non_snake_case)]
     pub fn make_List<T: AsNodePtr>(self, elems: &[Unique<'a, T>]) -> Unique<'a, &'a T::List> {
         if elems.is_empty() {
             Unique(ptr::null_mut(), self.id, PhantomData)
@@ -131,6 +145,18 @@ impl<'a> MemoryToken<'a> {
         res_target.as_mut().set_indirection(indirection);
         res_target.as_mut().set_val(val);
         Unique(res_target.into_ptr(), self.id, PhantomData)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn make_WithClause(
+        self,
+        ctes: Unique<'a, &'a CastNodeList<nodes::CommonTableExpr>>,
+        recursive: bool,
+    ) -> Unique<'a, &'a nodes::WithClause> {
+        let mut with_clause = self.make_node::<nodes::WithClause>();
+        with_clause.as_mut().set_ctes(ctes);
+        with_clause.as_mut().into_inner().recursive = recursive;
+        with_clause
     }
 
     /// Performs a deep copy of the given node onto this memory context,
