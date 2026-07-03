@@ -582,6 +582,16 @@ fn generate_node_structs(
         });
 
         out_file.items.push(parse_quote! {
+            // SAFETY: No reason we can't share nodes across threads
+            unsafe impl Send for #sname {}
+        });
+
+        out_file.items.push(parse_quote! {
+            // SAFETY: No reason we can't share nodes across threads
+            unsafe impl Sync for #sname {}
+        });
+
+        out_file.items.push(parse_quote! {
             #[allow(non_camel_case_types)]
             pub struct #smut<'a, 'b> {
                 #[allow(unused)]

@@ -114,6 +114,11 @@ impl FromNodePtr for &NodeList {
     }
 }
 
+// SAFETY: No reason we can't share nodes across threads
+unsafe impl Send for NodeList {}
+// SAFETY: No reason we can't share nodes across threads
+unsafe impl Sync for NodeList {}
+
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct NodeListIter<'a, T = Node<'a>> {
     iter: slice::Iter<'a, *mut raw::Node>,
