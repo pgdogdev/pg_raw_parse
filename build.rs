@@ -721,13 +721,9 @@ fn generate_make_funcs(
             _ => None,
         })
         .filter_map(|f| {
-            if f.sig.ident.to_string().starts_with("make")
-                && let syn::ReturnType::Type(_, t) = &f.sig.output
-                && let syn::Type::Ptr(t) = &**t
-                && let syn::Type::Path(syn::TypePath { path, .. }) = &*t.elem
-                && let Some(s) = node_structs
-                    .iter()
-                    .find(|s| path.get_ident() == Some(&s.name))
+            let fname = f.sig.ident.to_string();
+            if fname.starts_with("make")
+                && let Some(s) = node_structs.iter().find(|s| s.name == &fname[4..])
             {
                 Some((s, f))
             } else {
