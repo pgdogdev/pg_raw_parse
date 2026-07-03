@@ -323,6 +323,8 @@ fn copy_null_pointer() {
     let copy_list = owned(|mem| {
         let copy_none = mem.make_unique(none_node);
         assert!(copy_none.into_ptr().is_null());
+        let copy_option_none = mem.make_unique(None::<&nodes::RangeVar>);
+        assert!(copy_option_none.into_ptr().is_null());
         mem.make_unique(empty_list)
     });
     assert!(copy_list.as_ptr().is_null());
