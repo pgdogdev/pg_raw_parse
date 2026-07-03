@@ -4,7 +4,7 @@ use crate::raw::{self, *};
 use crate::{AsNodePtr, ConstValue, ConstructableNode, FromNodeMut, Node, Owned, nodes};
 use generativity::Id;
 use std::any::type_name;
-use std::ffi::c_char;
+use std::ffi::{c_char, c_int};
 use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
 
@@ -100,6 +100,13 @@ impl<'a> MemoryToken<'a> {
     pub fn make_NULL(self) -> Unique<'a, &'a nodes::A_Const> {
         let mut node = self.make_node::<nodes::A_Const>();
         node.as_mut().into_inner().isnull = true;
+        node
+    }
+
+    #[allow(non_snake_case)]
+    pub fn make_ParamRef(self, number: c_int) -> Unique<'a, &'a nodes::ParamRef> {
+        let mut node = self.make_node::<nodes::ParamRef>();
+        node.as_mut().into_inner().number = number;
         node
     }
 
