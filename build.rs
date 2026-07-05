@@ -294,7 +294,7 @@ impl NodeField {
         use NodeFieldType::*;
 
         match self.ty {
-            Private(_) | Primitive(_) | ConstVal => None,
+            ConstVal => None,
             CString => Some(parse_quote!(Option<PgStr<#lifetime>>)),
             _ => self.constructor_ty(lifetime),
         }

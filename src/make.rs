@@ -113,14 +113,14 @@ impl<'a> MemoryToken<'a> {
     #[allow(non_snake_case)]
     pub fn make_NULL(self) -> Unique<'a, &'a nodes::A_Const> {
         let mut node = self.make_node::<nodes::A_Const>();
-        node.as_mut().into_inner().isnull = true;
+        node.as_mut().set_isnull(true);
         node
     }
 
     #[allow(non_snake_case)]
     pub fn make_ParamRef(self, number: c_int) -> Unique<'a, &'a nodes::ParamRef> {
         let mut node = self.make_node::<nodes::ParamRef>();
-        node.as_mut().into_inner().number = number;
+        node.as_mut().set_number(number);
         node
     }
 
@@ -155,7 +155,7 @@ impl<'a> MemoryToken<'a> {
     ) -> Unique<'a, &'a nodes::WithClause> {
         let mut with_clause = self.make_node::<nodes::WithClause>();
         with_clause.as_mut().set_ctes(ctes);
-        with_clause.as_mut().into_inner().recursive = recursive;
+        with_clause.as_mut().set_recursive(recursive);
         with_clause
     }
 
