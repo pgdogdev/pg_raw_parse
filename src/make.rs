@@ -316,6 +316,14 @@ pub fn owned<F, T>(f: F) -> Owned<T>
 where
     for<'a> F: FnOnce(MemoryToken<'a>) -> Unique<'a, &'a T>,
 {
+    try_owned(|mem| Ok::<_, ()>(f(mem))).unwrap()
+}
+
+/// Identical to [`owned`], but for functions that return `Result`.
+pub fn try_owned<F, T, E>(f: F) -> Result<Owned<T>, E>
+where
+    for<'a> F: FnOnce(MemoryToken<'a>) -> Result<Unique<'a, &'a T>, E>,
+{
     let mem = MemoryContext::new(c"pg_raw_parse_owned_node");
     let node = {
         generativity::make_guard!(a);
@@ -323,9 +331,9 @@ where
             mem: &mem,
             id: a.into(),
         };
-        f(token).into_ptr()
+        f(token)?.into_ptr()
     };
-    Owned::new(mem, node)
+    Ok(Owned::new(mem, node))
 }
 
 #[test]
