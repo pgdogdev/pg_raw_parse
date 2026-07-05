@@ -254,7 +254,7 @@ impl NodeField {
         let fname = &self.name;
         let func_name = syn::Ident::new(&format!("set_{}", fname), fname.span());
         let ty = self.setter_ty(&id_lt)?;
-        let set_expr = self.as_raw_expr();
+        let set_expr = self.setter_expr();
         Some(parse_quote! {
             #[inline]
             pub fn #func_name(&mut self, #fname: #ty) {
@@ -294,7 +294,8 @@ impl NodeField {
         use NodeFieldType::*;
 
         match self.ty {
-            Private(_) | Primitive(_) | CString | ConstVal => None,
+            Private(_) | Primitive(_) | ConstVal => None,
+            CString => Some(parse_quote!(Option<PgStr<#lifetime>>)),
             _ => self.constructor_ty(lifetime),
         }
     }
@@ -309,12 +310,26 @@ impl NodeField {
             Node | CastNode(_) | List | CastList(_) => parse_quote!(#fname.into_ptr().cast()),
             CString => parse_quote! {
                 #fname
-                    .map(|s| self.copy_string(s))
+                    .map(|s| self.copy_string(s).into_ptr())
                     .unwrap_or(ptr::null_mut())
             },
             ConstVal => parse_quote!(compile_error!(
                 "PG has no functions that take ValUnion by value"
             )),
+        }
+    }
+
+    fn setter_expr(&self) -> syn::Expr {
+        use NodeFieldType::*;
+
+        let fname = &self.name;
+        match self.ty {
+            CString => parse_quote! {
+                #fname
+                    .map(|f| f.into_ptr())
+                    .unwrap_or(std::ptr::null_mut())
+            },
+            _ => self.as_raw_expr(),
         }
     }
 }

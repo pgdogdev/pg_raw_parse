@@ -60,7 +60,7 @@ impl<'a> MemoryToken<'a> {
                 // These are all the same repr, so it doesn't matter which
                 // variant we assign the string pointer to as long as we set
                 // the tag correctly.
-                Float(s) | String(s) | BitString(s) => v.sval.sval = self.copy_string(s),
+                Float(s) | String(s) | BitString(s) => v.sval.sval = self.copy_string(s).into_ptr(),
                 Unrecognized(_) => panic!("Cannot create A_Const with unrecognized value"),
             }
         }
@@ -85,7 +85,7 @@ impl<'a> MemoryToken<'a> {
         ctequery: Unique<'a, Node<'a>>,
     ) -> Unique<'a, &'a nodes::CommonTableExpr> {
         let mut cte = self.make_node::<nodes::CommonTableExpr>();
-        cte.as_mut().into_inner().ctename = self.copy_string(ctename);
+        cte.as_mut().set_ctename(Some(self.copy_string(ctename)));
         cte.as_mut().set_aliascolnames(aliascolnames);
         cte.as_mut().set_ctequery(ctequery);
         cte
@@ -139,9 +139,9 @@ impl<'a> MemoryToken<'a> {
         val: Unique<'a, Node<'a>>,
     ) -> Unique<'a, &'a nodes::ResTarget> {
         let mut res_target = self.make_node::<nodes::ResTarget>();
-        if let Some(name) = name {
-            res_target.as_mut().into_inner().name = self.copy_string(name);
-        }
+        res_target
+            .as_mut()
+            .set_name(name.map(|n| self.copy_string(n)));
         res_target.as_mut().set_indirection(indirection);
         res_target.as_mut().set_val(val);
         Unique(res_target.into_ptr(), self.id, PhantomData)
@@ -194,12 +194,14 @@ impl<'a> MemoryToken<'a> {
         Unique(ptr.cast(), self.id, PhantomData)
     }
 
-    pub(crate) fn copy_string(self, s: &str) -> *mut c_char {
+    /// Copy a string onto this memory context
+    pub fn copy_string(self, s: &str) -> PgStr<'a> {
         // SAFETY: This never panics
-        unsafe {
+        let ptr = unsafe {
             self.mem
                 .within(|| raw::wrapped_pnstrdup(s.as_ptr().cast(), s.len()))
-        }
+        };
+        PgStr(ptr, self.id)
     }
 
     /// Returns an empty list
@@ -293,6 +295,14 @@ where
             .cast();
         // SAFETY: This was always constructed with a valid pointer
         unsafe { T::from_ptr_mut(ptr, self.1) }
+    }
+}
+
+pub struct PgStr<'a>(*mut c_char, Id<'a>);
+
+impl PgStr<'_> {
+    pub(crate) fn into_ptr(self) -> *mut c_char {
+        self.0
     }
 }
 
