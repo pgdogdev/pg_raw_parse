@@ -115,13 +115,13 @@ mod tests {
         let bigint = owned(|mem| mem.make_Float(Some("1234567890")));
         let boolval = owned(|mem| mem.make_Boolean(true));
 
-        let smallunion = unsafe { *(smallint.as_ptr()).cast() };
-        let bigunion = unsafe { *(bigint.as_ptr()).cast() };
-        let boolunion = unsafe { *(boolval.as_ptr()).cast() };
+        let smallunion = unsafe { &*(smallint.as_ptr()).cast() };
+        let bigunion = unsafe { &*(bigint.as_ptr()).cast() };
+        let boolunion = unsafe { &*(boolval.as_ptr()).cast() };
 
-        let smallval = ConstValue::from_raw(&smallunion);
-        let bigval = ConstValue::from_raw(&bigunion);
-        let boolval = ConstValue::from_raw(&boolunion);
+        let smallval = ConstValue::from_raw(smallunion);
+        let bigval = ConstValue::from_raw(bigunion);
+        let boolval = ConstValue::from_raw(boolunion);
 
         assert_eq!(Some(1), smallval.numeric_value::<i32>());
         assert_eq!(Some(1.0), smallval.numeric_value::<f64>());

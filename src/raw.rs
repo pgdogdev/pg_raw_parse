@@ -16,13 +16,6 @@ impl Error {
     }
 }
 
-impl Clone for ValUnion {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl Copy for ValUnion {}
-
 #[test]
 fn test_raw_node_bindings_arent_generated() {
     use std::convert::identity as id;
