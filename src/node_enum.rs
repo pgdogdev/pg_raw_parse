@@ -1,4 +1,5 @@
-use crate::{AsNodePtr, ConstructableNode, FromNodePtr, list, nodes, raw};
+use crate::{AsNodePtr, ConstructableNode, FromNodeMut, FromNodePtr, list, nodes, raw};
+use generativity::Id;
 use std::ptr::NonNull;
 
 include!(concat!(env!("OUT_DIR"), "/node_enum_raw.rs"));

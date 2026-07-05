@@ -578,7 +578,7 @@ fn generate_node_structs(
                 unsafe fn from_ptr_mut<'a, 'b>(mut ptr: NonNull<Self>, id: Id<'a>) -> Self::MutRef<'a, 'b> {
                     // SAFETY: Caller is responsible for making this safe
                     let mut_ref = unsafe { ptr.as_mut() };
-                    #smut { _id: id, mut_ref }
+                    #smut { id, mut_ref }
                 }
             }
         });
@@ -608,7 +608,7 @@ fn generate_node_structs(
         out_file.items.push(parse_quote! {
             #[allow(non_camel_case_types)]
             pub struct #smut<'a, 'b> {
-                _id: Id<'a>,
+                pub(crate) id: Id<'a>,
                 mut_ref: &'b mut #sname,
             }
         });
@@ -629,6 +629,14 @@ fn generate_node_structs(
 
                 fn deref(&self) -> &Self::Target {
                     &*self.mut_ref
+                }
+            }
+        });
+
+        out_file.items.push(parse_quote! {
+            impl<'a, 'b> From<#smut<'a, 'b>> for crate::NodeMut<'a, 'b> {
+                fn from(node: #smut<'a, 'b>) -> Self {
+                    Self::#sname(node)
                 }
             }
         });
@@ -705,6 +713,56 @@ fn generate_node_enum(
                     Self::Invalid(p) => (&raw const *p).cast_mut(),
                     Self::NodeList(p) => (&raw const *p).cast_mut().cast(),
                     #(Self::#node_names(p) => (&raw const *p).cast_mut().cast(),)*
+                }
+            }
+        }
+    });
+
+    let enum_variants = node_names.iter().map::<syn::Variant, _>(
+        |i| parse_quote!(#i(<nodes::#i as FromNodeMut>::MutRef<'a, 'b>) = nodes::#i::TAG),
+    );
+    out_file.items.push(parse_quote! {
+        #[allow(nonstandard_style)]
+        #[repr(u32)]
+        pub enum NodeMut<'a, 'b> {
+            #(#enum_variants,)*
+            /// A pointer to a node that wasn't part of a parse tree, or that
+            /// pg_raw_parse doesn't know how to generate code for.
+            Invalid(*mut raw::Node, Id<'a>),
+        }
+    });
+
+    out_file.items.push(parse_quote! {
+        impl<'a, 'b> NodeMut<'a, 'b> {
+            /// # Safety
+            ///
+            /// The caller must ensure the pointer is a valid pointer to a node
+            /// allocated on the memory context referenced by `id`
+            pub(crate) unsafe fn from_raw(ptr: NonNull<raw::Node>, id: Id<'a>) -> Self {
+                // SAFETY: Caller is responsible for making this safe
+                unsafe {
+                    let tag = ptr.as_ref().type_;
+                    match tag {
+                        #(nodes::#node_names::TAG => Self::#node_names(nodes::#node_names::from_ptr_mut(ptr.cast(), id)),)*
+                        _ => Self::Invalid(ptr.as_ptr(), id),
+                    }
+                }
+            }
+
+            /// Returns the lifetime brand for the memory context this points
+            /// to
+            pub(crate) fn id(&self) -> Id<'a> {
+                match self {
+                    #(Self::#node_names(n) => n.id,)*
+                    Self::Invalid(_, id) => *id,
+                }
+            }
+
+            /// Get the raw pointer representation of this node
+            pub(crate) fn into_ptr(self) -> *mut raw::Node {
+                match self {
+                    #(Self::#node_names(p) => p.as_ptr(),)*
+                    Self::Invalid(p, _) => p,
                 }
             }
         }

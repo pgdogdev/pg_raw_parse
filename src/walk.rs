@@ -1,8 +1,9 @@
 use crate::pg_error::PgError;
-use crate::{AsNodePtr, FromNodePtr, Node, raw};
+use crate::{AsNodePtr, FromNodePtr, Node, NodeMut, nodes, raw};
 use std::ffi::c_void;
 use std::ops::ControlFlow;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
+use std::ptr::NonNull;
 
 /// Walks an AST tree, calling `f` for every node in the tree, including `node`
 pub fn walk<'a>(node: Node<'a>, mut f: impl FnMut(Node<'a>)) {
@@ -67,9 +68,33 @@ pub fn walk_manual<'a, B>(
     walk_expression_tree(node, |node| {
         let res = callback(node);
         res.map_break(|b| result = Some(b))
-    })
-    .expect("failed to walk expression tree");
+    });
     result
+}
+
+/// Walk an AST, calling the callback with a mutable reference for each node.
+/// The compiler will prevent the parent node from being modified while this
+/// walk is in progress.
+///
+/// ```compile_fail
+/// use pg_raw_parse::{parse, make, nodes, walk, NodeMut};
+///
+/// make::owned(|mem| {
+///     let mut select = mem.make_node::<nodes::SelectStmt>();
+///     walk::walk_mut(select.as_mut().into(), |node| {
+///         // Accessing the outer select, not the node being walked. Not okay.
+///         select.as_mut().set_fromClause(mem.empty());
+///     });
+///     select
+/// });
+pub fn walk_mut<'a, 'b, F>(node: NodeMut<'a, 'b>, mut f: F)
+where
+    for<'c> F: FnMut(NodeMut<'a, 'c>),
+{
+    walk_expression_tree_mut(node, |node| {
+        f(node);
+        Recurse::yes()
+    });
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,12 +132,37 @@ impl Recurse {
 
 // FIXME(sage): Would the optimizer be able to do more if we generate our own
 // AST walk in Rust?
-fn walk_expression_tree<'a, F>(node: Node<'a>, mut cb: F) -> crate::Result
+fn walk_expression_tree<'a, F>(node: Node<'a>, mut cb: F)
 where
     F: FnMut(Node<'a>) -> ControlFlow<(), Recurse>,
 {
+    walk_catching_unwind(node.as_ptr(), |node| {
+        // SAFETY: If we had a valid node come in, all its children should
+        // also be valid.
+        let node = unsafe { Node::from_raw(node.as_ptr()) };
+        cb(node)
+    })
+}
+
+fn walk_expression_tree_mut<'a, 'b, F>(node: NodeMut<'a, 'b>, mut cb: F)
+where
+    for<'c> F: FnMut(NodeMut<'a, 'c>) -> ControlFlow<(), Recurse>,
+{
+    let id = node.id();
+    walk_catching_unwind(node.into_ptr(), |node| {
+        // SAFETY: If we had a valid node come in, all its children should
+        // also be valid.
+        let node = unsafe { NodeMut::from_raw(node, id) };
+        cb(node)
+    })
+}
+
+fn walk_catching_unwind<F>(node: *mut raw::Node, mut cb: F)
+where
+    F: FnMut(NonNull<raw::Node>) -> ControlFlow<(), Recurse>,
+{
     let mut unwind_payload = None;
-    walk_expression_tree_inner::<'a>(node, |node| {
+    walk_expression_tree_inner(node, |node| {
         match catch_unwind(AssertUnwindSafe(|| cb(node))) {
             Ok(result) => result,
             Err(e) => {
@@ -120,26 +170,28 @@ where
                 ControlFlow::Break(())
             }
         }
-    })?;
+    })
+    .expect("failed to walk expression tree");
 
     if let Some(payload) = unwind_payload {
         resume_unwind(payload);
-    } else {
-        Ok(())
     }
 }
 
-fn walk_expression_tree_inner<'a, F>(node: Node<'a>, cb: F) -> crate::Result
+fn walk_expression_tree_inner<F>(mut node: *mut raw::Node, cb: F) -> crate::Result
 where
-    F: FnMut(Node<'a>) -> ControlFlow<(), Recurse>,
+    F: FnMut(NonNull<raw::Node>) -> ControlFlow<(), Recurse>,
 {
     let mut fn_and_error = (cb, raw::Error::null());
     // SAFETY: Nothing holds a pointer to cb after this function returns.
     // PG exceptions are caught and never jump over Rust frames.
     unsafe {
+        if (*node).type_ == raw::NodeTag_T_RawStmt {
+            node = <&nodes::RawStmt>::from_raw(node).stmt().as_ptr()
+        }
         raw::wrapped_raw_expression_tree_walker_impl(
-            node.as_ptr(),
-            Some(walk_node_cb::<'a, F>),
+            node,
+            Some(walk_node_cb::<F>),
             &raw mut fn_and_error as *mut c_void,
             &raw mut fn_and_error.1,
         );
@@ -152,32 +204,32 @@ where
     }
 }
 
-extern "C" fn walk_node_cb<'a, F>(node: *mut raw::Node, context: *mut c_void) -> bool
+extern "C" fn walk_node_cb<F>(node: *mut raw::Node, context: *mut c_void) -> bool
 where
-    F: FnMut(Node<'a>) -> ControlFlow<(), Recurse>,
+    F: FnMut(NonNull<raw::Node>) -> ControlFlow<(), Recurse>,
 {
     // SAFETY: This function is only ever called with a pointer allocated in
     // walk_expression_tree
     let (cb, err) = unsafe { &mut *(context as *mut (F, raw::Error)) };
-    // SAFETY: PG always calls this with a valid pointer
-    let node = unsafe { Node::from_raw(node) };
-    match node {
-        Node::None => false,
-        node => match cb(node) {
-            ControlFlow::Break(()) => true,
-            ControlFlow::Continue(Recurse::Yes) => {
-                // SAFETY: Caller is responsible for making this safe
-                unsafe {
-                    raw::wrapped_raw_expression_tree_walker_impl(
-                        node.as_ptr(),
-                        Some(walk_node_cb::<'a, F>),
-                        context,
-                        &raw mut *err,
-                    )
-                }
+
+    let Some(node) = NonNull::new(node) else {
+        return false;
+    };
+
+    match cb(node) {
+        ControlFlow::Break(()) => true,
+        ControlFlow::Continue(Recurse::Yes) => {
+            // SAFETY: Caller is responsible for making this safe
+            unsafe {
+                raw::wrapped_raw_expression_tree_walker_impl(
+                    node.as_ptr(),
+                    Some(walk_node_cb::<F>),
+                    context,
+                    &raw mut *err,
+                )
             }
-            ControlFlow::Continue(Recurse::No) => false,
-        },
+        }
+        ControlFlow::Continue(Recurse::No) => false,
     }
 }
 
@@ -243,4 +295,36 @@ fn error_is_set_after_recursion() {
     // SAFETY: It's a stack pointer. It's fine.
     let node = unsafe { Node::from_raw((&raw mut list).cast()) };
     walk(node, |_| ());
+}
+
+#[test]
+fn walk_mutable_tree() {
+    use crate::{deparse, make, parse};
+
+    let tree = parse(
+        "WITH lol AS (INSERT INTO users VALUES (bar(2))) SELECT foo(1) FROM users WHERE id = baz(3)",
+    )
+    .unwrap();
+    let stmt = tree.into_iter().next().unwrap();
+    let fooified = make::owned(|mem| {
+        let mut copy = mem.make_unique(stmt);
+        walk_mut(copy.as_mut().into(), |node| match node {
+            NodeMut::FuncCall(mut f) => {
+                // FIXME(sage): We need a more ergonomic way to mutate lists.
+                // At absolute minimum we need a way to get
+                // `Vec<Unique<'_, Node>>` from a list field of a
+                // `Unique<'a, T>` that doesn't require copying.
+                let old_name = f.funcname().into_iter().map(|n| mem.make_unique(n));
+                let mut new_name = vec![mem.make_String(Some("foo")).uncast()];
+                new_name.extend(old_name);
+                f.set_funcname(mem.make_List(&new_name));
+            }
+            _ => (),
+        });
+        copy
+    });
+    assert_eq!(
+        deparse(&fooified).unwrap().as_str(),
+        "WITH lol AS (INSERT INTO users VALUES (foo.bar(2))) SELECT foo.foo(1) FROM users WHERE id = foo.baz(3)"
+    );
 }
