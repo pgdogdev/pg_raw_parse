@@ -43,27 +43,10 @@ pub struct MemoryToken<'a> {
 
 impl<'a> MemoryToken<'a> {
     #[allow(non_snake_case)]
-    pub fn make_A_Const(self, val: ConstValue) -> Unique<'a, &'a nodes::A_Const> {
-        use ConstValue::*;
-
+    pub fn make_A_Const(self, val: ConstValue<'a>) -> Unique<'a, &'a nodes::A_Const> {
         let mut node = self.make_node::<nodes::A_Const>();
-        let node_ref = node.as_mut().into_inner();
-        node_ref.isnull = false;
-        // SAFETY: We're never casting to anything other than node without
-        // checking the tag
-        unsafe {
-            let v = &mut node_ref.val;
-            v.node.type_ = val.tag();
-            match val {
-                Integer(i) => v.ival.ival = i,
-                Boolean(b) => v.boolval.boolval = b,
-                // These are all the same repr, so it doesn't matter which
-                // variant we assign the string pointer to as long as we set
-                // the tag correctly.
-                Float(s) | String(s) | BitString(s) => v.sval.sval = self.copy_string(s).into_ptr(),
-                Unrecognized(_) => panic!("Cannot create A_Const with unrecognized value"),
-            }
-        }
+        node.as_mut().set_isnull(false);
+        node.as_mut().set_val(val.as_raw(self));
         node
     }
 

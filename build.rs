@@ -187,7 +187,8 @@ impl NodeField {
     fn vis(&self) -> syn::Visibility {
         match self.ty {
             NodeFieldType::Primitive(_) => parse_quote!(pub),
-            NodeFieldType::CString | NodeFieldType::ConstVal => parse_quote!(pub(crate)),
+            NodeFieldType::CString => parse_quote!(pub(crate)),
+            NodeFieldType::Private(_) if self.name == "type_" => parse_quote!(pub(crate)),
             _ => syn::Visibility::Inherited,
         }
     }
@@ -294,7 +295,6 @@ impl NodeField {
         use NodeFieldType::*;
 
         match self.ty {
-            ConstVal => None,
             CString => Some(parse_quote!(Option<PgStr<#lifetime>>)),
             _ => self.constructor_ty(lifetime),
         }
@@ -305,7 +305,7 @@ impl NodeField {
 
         let fname = &self.name;
         match self.ty {
-            Primitive(_) => parse_quote!(#fname),
+            Primitive(_) | ConstVal => parse_quote!(#fname),
             Private(_) => parse_quote!(Default::default()),
             Node | CastNode(_) | List | CastList(_) => parse_quote!(#fname.into_ptr().cast()),
             CString => parse_quote! {
@@ -313,9 +313,6 @@ impl NodeField {
                     .map(|s| self.copy_string(s).into_ptr())
                     .unwrap_or(ptr::null_mut())
             },
-            ConstVal => parse_quote!(compile_error!(
-                "PG has no functions that take ValUnion by value"
-            )),
         }
     }
 
@@ -373,7 +370,8 @@ impl NodeFieldType {
         let inner = self.ty(lt);
         match self {
             Self::Private(_) => None,
-            Self::Primitive(_) | Self::ConstVal => Some(inner),
+            Self::Primitive(_) => Some(inner),
+            Self::ConstVal => Some(parse_quote!(crate::raw::ValUnion)),
             Self::Node | Self::CastNode(_) | Self::List | Self::CastList(_) => {
                 Some(parse_quote!(Unique<#lt, #inner>))
             }
@@ -580,7 +578,7 @@ fn generate_node_structs(
                 unsafe fn from_ptr_mut<'a, 'b>(mut ptr: NonNull<Self>, id: Id<'a>) -> Self::MutRef<'a, 'b> {
                     // SAFETY: Caller is responsible for making this safe
                     let mut_ref = unsafe { ptr.as_mut() };
-                    #smut { id, mut_ref }
+                    #smut { _id: id, mut_ref }
                 }
             }
         });
@@ -610,13 +608,7 @@ fn generate_node_structs(
         out_file.items.push(parse_quote! {
             #[allow(non_camel_case_types)]
             pub struct #smut<'a, 'b> {
-                #[allow(unused)]
-                id: Id<'a>,
-                // FIXME(sage): This is unused for structs with only primitive
-                // fields. We either need to generate setter functions for them
-                // or determine if we can impl DerefMut for this type safely
-                // (e.g. in a way that prevents `mem::swap`)
-                #[allow(unused)]
+                _id: Id<'a>,
                 mut_ref: &'b mut #sname,
             }
         });
@@ -628,10 +620,15 @@ fn generate_node_structs(
         out_file.items.push(parse_quote! {
             impl<'a, 'b> #smut<'a, 'b> {
                 #(#setters)*
+            }
+        });
 
-                #[allow(unused)]
-                pub(crate) fn into_inner(self) -> &'b mut #sname {
-                    self.mut_ref
+        out_file.items.push(parse_quote! {
+            impl<'a, 'b> std::ops::Deref for #smut<'a, 'b> {
+                type Target = #sname;
+
+                fn deref(&self) -> &Self::Target {
+                    &*self.mut_ref
                 }
             }
         });

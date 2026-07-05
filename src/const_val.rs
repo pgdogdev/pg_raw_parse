@@ -1,11 +1,13 @@
 #![allow(non_upper_case_globals)]
 
+use crate::make::MemoryToken;
+use crate::nodes;
 use crate::raw::{
     NodeTag, NodeTag_T_BitString, NodeTag_T_Boolean, NodeTag_T_Float, NodeTag_T_Integer,
     NodeTag_T_String, ValUnion,
 };
 use std::ffi::c_int;
-use std::ptr;
+use std::mem::ManuallyDrop;
 use std::str::FromStr;
 
 #[repr(u32)]
@@ -37,6 +39,42 @@ impl<'a> ConstValue<'a> {
                 NodeTag_T_BitString => Self::BitString(val.bsval.bsval().unwrap_or_default()),
                 tag => Self::Unrecognized(tag),
             }
+        }
+    }
+
+    pub(crate) fn as_raw(&self, mem: MemoryToken<'a>) -> ValUnion {
+        match self {
+            Self::Integer(i) => ValUnion {
+                ival: ManuallyDrop::new(nodes::Integer {
+                    type_: NodeTag_T_Integer,
+                    ival: *i,
+                }),
+            },
+            Self::Float(f) => ValUnion {
+                fval: ManuallyDrop::new(nodes::Float {
+                    type_: NodeTag_T_Float,
+                    fval: mem.copy_string(*f).into_ptr(),
+                }),
+            },
+            Self::Boolean(b) => ValUnion {
+                boolval: ManuallyDrop::new(nodes::Boolean {
+                    type_: NodeTag_T_Boolean,
+                    boolval: *b,
+                }),
+            },
+            Self::String(s) => ValUnion {
+                sval: ManuallyDrop::new(nodes::String {
+                    type_: NodeTag_T_String,
+                    sval: mem.copy_string(*s).into_ptr(),
+                }),
+            },
+            Self::BitString(bs) => ValUnion {
+                bsval: ManuallyDrop::new(nodes::BitString {
+                    type_: NodeTag_T_BitString,
+                    bsval: mem.copy_string(*bs).into_ptr(),
+                }),
+            },
+            Self::Unrecognized(_) => panic!("as_raw called on unrecognized union type"),
         }
     }
 
@@ -88,15 +126,6 @@ impl<'a> ConstValue<'a> {
             _ => None,
         }
     }
-
-    pub(crate) fn tag(&self) -> u32 {
-        if let Self::Unrecognized(tag) = self {
-            *tag
-        } else {
-            // SAFETY: https://doc.rust-lang.org/reference/items/enumerations.html#pointer-casting
-            unsafe { *ptr::from_ref(self).cast() }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -121,10 +150,7 @@ mod tests {
 
         assert_eq!(Some(1), smallval.numeric_value::<i32>());
         assert_eq!(Some(1.0), smallval.numeric_value::<f64>());
-        assert_eq!(NodeTag_T_Integer, smallval.tag());
         assert_eq!(Some(1234567890), bigval.numeric_value::<i64>());
-        assert_eq!(NodeTag_T_Float, bigval.tag());
         assert_eq!(None, boolval.numeric_value::<i32>());
-        assert_eq!(NodeTag_T_Boolean, boolval.tag());
     }
 }
