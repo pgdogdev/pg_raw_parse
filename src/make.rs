@@ -53,14 +53,14 @@ impl<'a> MemoryToken<'a> {
         // checking the tag
         unsafe {
             let v = &mut node_ref.val;
-            v.node.as_mut().type_ = val.tag();
+            v.node.type_ = val.tag();
             match val {
-                Integer(i) => v.ival.as_mut().ival = i,
-                Boolean(b) => v.boolval.as_mut().boolval = b,
+                Integer(i) => v.ival.ival = i,
+                Boolean(b) => v.boolval.boolval = b,
                 // These are all the same repr, so it doesn't matter which
                 // variant we assign the string pointer to as long as we set
                 // the tag correctly.
-                Float(s) | String(s) | BitString(s) => v.sval.as_mut().sval = self.copy_string(s),
+                Float(s) | String(s) | BitString(s) => v.sval.sval = self.copy_string(s),
                 Unrecognized(_) => panic!("Cannot create A_Const with unrecognized value"),
             }
         }

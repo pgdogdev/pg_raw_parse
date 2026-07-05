@@ -27,19 +27,15 @@ impl<'a> ConstValue<'a> {
     /// converted into &str, returning an empty string if they were NULL
     /// (though we never expect that to happen)
     pub(crate) fn from_raw(val: &'a ValUnion) -> Self {
-        // SAFETY: No matter what type this is, it's still a node
-        let tag = unsafe { val.node.as_ref() }.type_;
         // SAFETY: We always check the tag before casting the union
         unsafe {
-            match tag {
-                NodeTag_T_Integer => Self::Integer(val.ival.as_ref().ival),
-                NodeTag_T_Float => Self::Float(val.fval.as_ref().fval().unwrap_or_default()),
-                NodeTag_T_Boolean => Self::Boolean(val.boolval.as_ref().boolval),
-                NodeTag_T_String => Self::String(val.sval.as_ref().sval().unwrap_or_default()),
-                NodeTag_T_BitString => {
-                    Self::BitString(val.bsval.as_ref().bsval().unwrap_or_default())
-                }
-                _ => Self::Unrecognized(tag),
+            match val.node.type_ {
+                NodeTag_T_Integer => Self::Integer(val.ival.ival),
+                NodeTag_T_Float => Self::Float(val.fval.fval().unwrap_or_default()),
+                NodeTag_T_Boolean => Self::Boolean(val.boolval.boolval),
+                NodeTag_T_String => Self::String(val.sval.sval().unwrap_or_default()),
+                NodeTag_T_BitString => Self::BitString(val.bsval.bsval().unwrap_or_default()),
+                tag => Self::Unrecognized(tag),
             }
         }
     }

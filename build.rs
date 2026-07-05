@@ -36,6 +36,7 @@ fn main() {
                 .unwrap(),
         )
         .derive_copy(false)
+        .default_non_copy_union_style(bindgen::NonCopyUnionStyle::ManuallyDrop)
         .rustified_non_exhaustive_enum("A_Expr_Kind")
         .rustified_non_exhaustive_enum("BoolExprType")
         .rustified_non_exhaustive_enum("SortByDir")
