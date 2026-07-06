@@ -1,6 +1,6 @@
 use crate::mem::MemoryContext;
 use crate::pg_error::PgError;
-use crate::{Result, nodes, raw};
+use crate::{Node, Result, nodes, raw};
 use std::ptr::{self, NonNull};
 
 pub struct DeparseResult {
@@ -36,8 +36,16 @@ impl DeparseResult {
     }
 }
 
-pub fn deparse(stmt: &nodes::RawStmt) -> Result<DeparseResult> {
-    DeparseResult::deparse(stmt)
+pub fn deparse<'a, N: Into<Node<'a>>>(node: N) -> Result<DeparseResult> {
+    let stmt;
+    let stmt_ref = match node.into() {
+        Node::RawStmt(stmt) => stmt,
+        node => {
+            stmt = nodes::RawStmt::new(node);
+            &stmt
+        }
+    };
+    DeparseResult::deparse(stmt_ref)
 }
 
 #[test]

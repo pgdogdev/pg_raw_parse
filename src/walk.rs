@@ -324,7 +324,7 @@ fn walk_mutable_tree() {
         copy
     });
     assert_eq!(
-        deparse(&fooified).unwrap().as_str(),
+        deparse(&*fooified).unwrap().as_str(),
         "WITH lol AS (INSERT INTO users VALUES (foo.bar(2))) SELECT foo.foo(1) FROM users WHERE id = foo.baz(3)"
     );
 }

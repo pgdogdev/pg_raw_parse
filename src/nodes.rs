@@ -1,8 +1,8 @@
 #![allow(non_snake_case)]
-use crate::ConstructableNode;
 use crate::const_val::ConstValue;
 use crate::make::{PgStr, Unique};
 use crate::raw::{self, __IncompleteArrayField, List, Node, ValUnion};
+use crate::{AsNodePtr, ConstructableNode};
 use generativity::Id;
 use std::fmt;
 use std::ptr::NonNull;
@@ -15,6 +15,17 @@ impl Bitmapset {
     pub fn words(&self) -> &[bitmapword] {
         // SAFETY: words is always nwords long
         unsafe { self.words.as_slice(self.nwords as _) }
+    }
+}
+
+impl RawStmt {
+    pub(crate) fn new<N: AsNodePtr>(node: N) -> Self {
+        Self {
+            type_: raw::NodeTag_T_RawStmt,
+            stmt: node.as_ptr(),
+            stmt_location: -1,
+            stmt_len: 0,
+        }
     }
 }
 

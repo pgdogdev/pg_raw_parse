@@ -422,8 +422,8 @@ fn make_node_with_cast_list() {
             mem.make_A_Const(ConstValue::Integer(1)).uncast(),
         )]);
         select_stmt.as_mut().set_targetList(list);
-        mem.make_RawStmt(select_stmt.uncast())
+        select_stmt
     });
 
-    assert_eq!("SELECT 1", crate::deparse(&stmt).unwrap().as_str());
+    assert_eq!("SELECT 1", crate::deparse(&*stmt).unwrap().as_str());
 }
