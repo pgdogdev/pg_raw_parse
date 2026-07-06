@@ -1,11 +1,14 @@
 use crate::list::{CastNodeList, NodeList};
 use crate::mem::MemoryContext;
 use crate::raw::{self, *};
-use crate::{AsNodePtr, ConstValue, ConstructableNode, FromNodeMut, Node, Owned, nodes};
+use crate::{
+    AsNodePtr, ConstValue, ConstructableNode, FromNodeMut, FromNodePtr, Node, Owned, nodes,
+};
 use generativity::Id;
 use std::any::type_name;
 use std::ffi::{c_char, c_int};
 use std::marker::PhantomData;
+use std::ops::Deref;
 use std::ptr::{self, NonNull};
 
 include!(concat!(env!("OUT_DIR"), "/make_funcs_raw.rs"));
@@ -217,13 +220,16 @@ impl<'a, T> Unique<'a, T> {
         Unique(self.0, self.1, PhantomData)
     }
 
-    #[cfg(test)]
-    fn into_inner(self) -> T
+    pub fn as_ref(&self) -> T
     where
-        T: crate::FromNodePtr,
+        T: FromNodePtr,
     {
         // SAFETY: Always a valid pointer
-        unsafe { T::from_raw(self.into_ptr()) }
+        unsafe { T::from_raw(self.0) }
+    }
+
+    pub fn as_option(self) -> Unique<'a, Option<T>> {
+        Unique(self.0, self.1, PhantomData)
     }
 }
 
@@ -278,6 +284,17 @@ where
             .cast();
         // SAFETY: This was always constructed with a valid pointer
         unsafe { T::from_ptr_mut(ptr, self.1) }
+    }
+}
+
+impl<'a, T> Deref for Unique<'a, &'a T>
+where
+    &'a T: FromNodePtr,
+{
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
     }
 }
 
@@ -362,7 +379,7 @@ fn copy_node() {
     let s = owned(|mem| mem.make_String(Some("hi")));
     let copied_string = owned(|mem| {
         let copied_node = mem.make_unique(Node::String(&*s));
-        assert_eq!(Some("hi"), copied_node.into_inner().as_str());
+        assert_eq!(Some("hi"), copied_node.as_ref().as_str());
         mem.make_unique(&*s)
     });
     assert_eq!(Some("hi"), copied_string.sval());
