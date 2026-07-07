@@ -2,7 +2,7 @@ use crate::list::{CastNodeList, NodeList};
 use crate::mem::MemoryContext;
 use crate::raw::{self, *};
 use crate::{
-    AsNodePtr, ConstValue, ConstructableNode, FromNodeMut, FromNodePtr, Node, Owned, nodes,
+    AsNodePtr, ConstValue, ConstructableNode, FromNodeMut, FromNodePtr, Node, NodeMut, Owned, nodes,
 };
 use generativity::Id;
 use std::any::type_name;
@@ -284,6 +284,15 @@ where
             .cast();
         // SAFETY: This was always constructed with a valid pointer
         unsafe { T::from_ptr_mut(ptr, self.1) }
+    }
+}
+
+impl<'a> Unique<'a, Node<'a>> {
+    /// Get a mutable reference to the inner node. See
+    /// [`Unique<'a, &'a T>::as_mut`] for more details
+    pub fn as_mut<'b>(&'b mut self) -> NodeMut<'a, 'b> {
+        let ptr = NonNull::new(self.0).expect("as_mut called on a NULL pointer");
+        unsafe { NodeMut::from_raw(ptr, self.1) }
     }
 }
 
