@@ -35,7 +35,7 @@ pub fn walk<'a>(node: Node<'a>, mut f: impl FnMut(Node<'a>)) {
 /// walk_manual::<()>(stmt, |node| match node {
 ///     Node::SelectStmt(s) => {
 ///         select_count += 1;
-///         Recurse::recurse_unless(s.fromClause().len() > 0)
+///         Recurse::recurse_unless(s.from_clause().len() > 0)
 ///     }
 ///     _ => Recurse::yes(),
 /// });
@@ -83,7 +83,7 @@ pub fn walk_manual<'a, B>(
 ///     let mut select = mem.make_node::<nodes::SelectStmt>();
 ///     walk::walk_mut(select.as_mut().into(), |node| {
 ///         // Accessing the outer select, not the node being walked. Not okay.
-///         select.as_mut().set_fromClause(mem.empty());
+///         select.as_mut().set_from_clause(mem.empty());
 ///     });
 ///     select
 /// });
@@ -315,9 +315,9 @@ fn walk_mutable_tree() {
                 // `Vec<Unique<'_, Node>>` from a list field of a
                 // `Unique<'a, T>` that doesn't require copying.
                 let old_name = f.funcname().into_iter().map(|n| mem.make_unique(n));
-                let mut new_name = vec![mem.make_String(Some("foo")).uncast()];
+                let mut new_name = vec![mem.make_string(Some("foo")).uncast()];
                 new_name.extend(old_name);
-                f.set_funcname(mem.make_List(&new_name));
+                f.set_funcname(mem.make_list(&new_name));
             }
             _ => (),
         });

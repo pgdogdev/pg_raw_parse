@@ -1,11 +1,14 @@
+use convert_case::{Case, Casing};
 use glob::glob;
 use regex::Regex;
 use std::env;
 use std::path::{Path, PathBuf};
+use syn::parse::ParseStream;
 use syn::{
-    parse_quote,
+    Token, parse_quote,
     spanned::Spanned,
     visit::{self, Visit},
+    visit_mut::VisitMut,
 };
 
 fn main() {
@@ -469,6 +472,28 @@ fn generate_node_structs(
         i @ syn::Item::Const(c) if c.ident == "_" && references_local_struct(c) => Some(i.clone()),
         _ => None,
     });
+
+    struct FixCasing;
+    impl VisitMut for FixCasing {
+        fn visit_macro_mut(&mut self, i: &mut syn::Macro) {
+            if i.path == parse_quote!(::std::mem::offset_of) {
+                let (ty, field) = i
+                    .parse_body_with(|input: ParseStream| {
+                        let ty = input.parse::<syn::Type>()?;
+                        input.parse::<Token![,]>()?;
+                        let field = input.parse::<syn::Ident>()?;
+                        Ok((ty, field))
+                    })
+                    .unwrap();
+                let field = snake_case(&field);
+                i.tokens = parse_quote!(#ty, #field);
+            }
+        }
+    }
+    let safety_consts = safety_consts.map(|mut c| {
+        FixCasing.visit_item_mut(&mut c);
+        c
+    });
     out_file.items.extend(safety_consts);
 
     for s in &node_structs {
@@ -661,7 +686,7 @@ fn generate_node_enum(
         .iter()
         .map::<syn::Variant, _>(|i| parse_quote!(#i(&'a nodes::#i) = nodes::#i::TAG));
     out_file.items.push(parse_quote! {
-        #[allow(nonstandard_style)]
+        #[allow(non_camel_case_types)]
         #[repr(u32)]
         #[derive(Debug, Clone, Copy)]
         pub enum Node<'a> {
@@ -722,7 +747,7 @@ fn generate_node_enum(
         |i| parse_quote!(#i(<nodes::#i as FromNodeMut>::MutRef<'a, 'b>) = nodes::#i::TAG),
     );
     out_file.items.push(parse_quote! {
-        #[allow(nonstandard_style)]
+        #[allow(non_camel_case_types)]
         #[repr(u32)]
         pub enum NodeMut<'a, 'b> {
             #(#enum_variants,)*
@@ -806,8 +831,8 @@ fn generate_make_funcs(
     let lt = parse_quote!('a);
     let items = makefuncs.iter().map(|(node, makefunc)| -> syn::ImplItem {
         let node_name = &node.name;
-        let func_name = syn::Ident::new(&format!("make_{}", node_name), makefunc.sig.ident.span());
         let raw_func_name = &makefunc.sig.ident;
+        let func_name = snake_case(raw_func_name);
 
         let arg_fields = makefunc
             .sig
@@ -861,7 +886,6 @@ fn generate_make_funcs(
         let farg_exprs = arg_fields.iter().map(|field| field.as_raw_expr());
 
         parse_quote! {
-            #[allow(non_snake_case)]
             pub fn #func_name(self, #(#fargs,)*) -> Unique<#lt, &#lt crate::nodes::#node_name> {
                 // SAFETY: The given closure never panics. The function raw
                 // functions we call are only allocating and assigning fields.
@@ -990,7 +1014,7 @@ fn build_node_struct(s: &syn::ItemStruct, type_comment_regex: &Regex) -> NodeStr
         .iter()
         .map(|f| {
             let attrs = clean_doc_comments(&f.attrs);
-            let name = f.ident.clone().expect("C doesn't have unnamed fields");
+            let name = snake_case(f.ident.as_ref().expect("C doesn't have unnamed fields"));
             let ty = determine_field_ty(f, type_comment_regex);
             NodeField { attrs, name, ty }
         })
@@ -1054,4 +1078,8 @@ fn determine_list_field_ty(field: &syn::Field, comment_regex: &Regex) -> NodeFie
         // Polymorphic list or list without adequate documentation
         NodeFieldType::List
     }
+}
+
+fn snake_case(input: &syn::Ident) -> syn::Ident {
+    syn::Ident::new(&input.to_string().to_case(Case::Snake), input.span())
 }
