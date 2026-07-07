@@ -2,7 +2,7 @@
 use crate::const_val::ConstValue;
 use crate::make::{PgStr, Unique};
 use crate::raw::{self, __IncompleteArrayField, List, Node, ValUnion};
-use crate::{AsNodePtr, ConstructableNode};
+use crate::{AsNodePtr, ConstructableNode, FromNodeMut, NodeMut};
 use generativity::Id;
 use std::fmt;
 use std::ptr::NonNull;

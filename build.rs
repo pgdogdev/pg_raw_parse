@@ -251,6 +251,48 @@ impl NodeField {
         }
     }
 
+    fn mut_accessor(&self, lt: syn::Lifetime) -> Option<syn::ImplItem> {
+        use NodeFieldType::*;
+
+        let fname = &self.name;
+        let func_name = syn::Ident::new(&format!("{fname}_mut"), fname.span());
+        match &self.ty {
+            // No reason to provide for these, user can just `&mut node.field`
+            Private(_) | Primitive(_) => None,
+
+            // We don't provide mutable lists yet
+            List | CastList(_) => None,
+
+            // We can't provide mutable strings, and there's no reason to.
+            CString => None,
+
+            // Mutable access to this would basically be mutating either a
+            // primitive or a string. We don't provide mut accessors for either
+            // of those, so we don't provide them for this
+            ConstVal => None,
+
+            Node => Some(parse_quote! {
+                #[inline]
+                pub fn #func_name(&mut self) -> Option<NodeMut<'a, '_>> {
+                    NonNull::new(self.mut_ref.#fname).map(|ptr| {
+                        // The field is always a valid pointer or NULL
+                        unsafe { NodeMut::from_raw(ptr, self.id) }
+                    })
+                }
+            }),
+
+            CastNode(node) => Some(parse_quote! {
+                #[inline]
+                pub fn #func_name(&mut self) -> Option<<#node as FromNodeMut>::MutRef<#lt, '_>> {
+                    NonNull::new(self.mut_ref.#fname).map(|ptr| {
+                        // The field is always a valid pointer or NULL
+                        unsafe { #node::from_ptr_mut(ptr, self.id) }
+                    })
+                }
+            }),
+        }
+    }
+
     fn setter_method(&self, self_expr: syn::Expr, id_lt: syn::Lifetime) -> Option<syn::ImplItem> {
         let fname = &self.name;
         let func_name = syn::Ident::new(&format!("set_{}", fname), fname.span());
@@ -334,7 +376,7 @@ impl NodeField {
 enum NodeFieldType {
     Private(syn::Type),
     Node,
-    CastNode(syn::Type),
+    CastNode(syn::Ident),
     List,
     CastList(syn::Type),
     CString,
@@ -427,9 +469,12 @@ fn generate_node_structs(
                     || *typ == parse_quote!(Expr)
             )
         });
-    let local_struct_names = raw_node_structs.clone().map(|s| &s.ident);
-    let struct_name_regex = local_struct_names
+    let local_struct_names = raw_node_structs
         .clone()
+        .map(|s| &s.ident)
+        .collect::<Vec<_>>();
+    let struct_name_regex = local_struct_names
+        .iter()
         .rev()
         .map(|s| s.to_string())
         .collect::<Vec<_>>()
@@ -454,7 +499,10 @@ fn generate_node_structs(
         }
     }
 
-    let local_struct_types: Vec<syn::Type> = local_struct_names.map(|i| parse_quote!(#i)).collect();
+    let local_struct_types: Vec<syn::Type> = local_struct_names
+        .iter()
+        .map(|i| parse_quote!(#i))
+        .collect();
     let references_local_struct = |c| {
         let mut visitor = ReferencesLocalStruct {
             local_structs: &local_struct_types,
@@ -478,7 +526,7 @@ fn generate_node_structs(
 
         for f in &s.fields {
             if let NodeFieldType::CastNode(t) = &f.ty
-                && !local_struct_types.contains(t)
+                && !local_struct_names.contains(&t)
             {
                 panic!(
                     "{sname}.{} is a pointer to {t:?}, which is not a Node. It needs special handling",
@@ -617,9 +665,14 @@ fn generate_node_structs(
             .fields
             .iter()
             .filter_map(|f| f.setter_method(parse_quote!(self.mut_ref), parse_quote!('a)));
+        let mut_accessors = s
+            .fields
+            .iter()
+            .filter_map(|f| f.mut_accessor(parse_quote!('a)));
         out_file.items.push(parse_quote! {
             impl<'a, 'b> #smut<'a, 'b> {
                 #(#setters)*
+                #(#mut_accessors)*
             }
         });
 
@@ -1013,10 +1066,13 @@ fn determine_field_ty(field: &syn::Field, comment_regex: &Regex) -> NodeFieldTyp
         NodeFieldType::CString
     } else if field.ty == parse_quote!(ValUnion) {
         NodeFieldType::ConstVal
-    } else if let syn::Type::Ptr(ty) = &field.ty {
+    } else if let syn::Type::Ptr(ty) = &field.ty
+        && let syn::Type::Path(p) = &*ty.elem
+        && let Some(i) = p.path.get_ident()
+    {
         // At this point any pointers we haven't yet matched should just be
         // specific types of nodes
-        NodeFieldType::CastNode((*ty.elem).clone())
+        NodeFieldType::CastNode(i.clone())
     } else if field.ty == parse_quote!(ParseLoc) || is_flexible_array_ty(&field.ty) {
         NodeFieldType::Private(field.ty.clone())
     } else {
