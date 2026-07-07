@@ -24,9 +24,9 @@ include!(concat!(env!("OUT_DIR"), "/make_funcs_raw.rs"));
 /// use pg_raw_parse::make::owned;
 ///
 /// owned(|mem1| {
-///     let node = mem1.make_String(Some("hi"));
-///     owned(|mem2| mem2.make_List(&[node])); // Fails, node is on mem1
-///     mem1.make_String(Some("lol"))
+///     let node = mem1.make_string(Some("hi"));
+///     owned(|mem2| mem2.make_list(&[node])); // Fails, node is on mem1
+///     mem1.make_string(Some("lol"))
 /// });
 /// ```
 ///
@@ -34,8 +34,8 @@ include!(concat!(env!("OUT_DIR"), "/make_funcs_raw.rs"));
 /// use pg_raw_parse::make::owned;
 ///
 /// owned(|mem1| {
-///     let node = mem1.make_String(Some("hi"));
-///     mem1.make_List(&[node]) // Is fine, both nodes are on mem1
+///     let node = mem1.make_string(Some("hi"));
+///     mem1.make_list(&[node]) // Is fine, both nodes are on mem1
 /// });
 /// ```
 #[derive(Clone, Copy)]
@@ -45,16 +45,14 @@ pub struct MemoryToken<'a> {
 }
 
 impl<'a> MemoryToken<'a> {
-    #[allow(non_snake_case)]
-    pub fn make_A_Const(self, val: ConstValue<'a>) -> Unique<'a, &'a nodes::A_Const> {
+    pub fn make_a_const(self, val: ConstValue<'a>) -> Unique<'a, &'a nodes::A_Const> {
         let mut node = self.make_node::<nodes::A_Const>();
         node.as_mut().set_isnull(false);
         node.as_mut().set_val(val.as_raw(self));
         node
     }
 
-    #[allow(non_snake_case)]
-    pub fn make_ColumnRef(
+    pub fn make_column_ref(
         self,
         fields: Unique<'a, &'a NodeList>,
     ) -> Unique<'a, &'a nodes::ColumnRef> {
@@ -63,8 +61,7 @@ impl<'a> MemoryToken<'a> {
         node
     }
 
-    #[allow(non_snake_case)]
-    pub fn make_CommonTableExpr(
+    pub fn make_common_table_expr(
         self,
         ctename: &str,
         aliascolnames: Unique<'a, &'a NodeList>,
@@ -77,8 +74,7 @@ impl<'a> MemoryToken<'a> {
         cte
     }
 
-    #[allow(non_snake_case)]
-    pub fn make_List<T: AsNodePtr>(self, elems: &[Unique<'a, T>]) -> Unique<'a, &'a T::List> {
+    pub fn make_list<T: AsNodePtr>(self, elems: &[Unique<'a, T>]) -> Unique<'a, &'a T::List> {
         if elems.is_empty() {
             Unique(ptr::null_mut(), self.id, PhantomData)
         } else {
@@ -96,29 +92,25 @@ impl<'a> MemoryToken<'a> {
         }
     }
 
-    #[allow(non_snake_case)]
-    pub fn make_NULL(self) -> Unique<'a, &'a nodes::A_Const> {
+    pub fn make_null(self) -> Unique<'a, &'a nodes::A_Const> {
         let mut node = self.make_node::<nodes::A_Const>();
         node.as_mut().set_isnull(true);
         node
     }
 
-    #[allow(non_snake_case)]
-    pub fn make_ParamRef(self, number: c_int) -> Unique<'a, &'a nodes::ParamRef> {
+    pub fn make_param_ref(self, number: c_int) -> Unique<'a, &'a nodes::ParamRef> {
         let mut node = self.make_node::<nodes::ParamRef>();
         node.as_mut().set_number(number);
         node
     }
 
-    #[allow(non_snake_case)]
-    pub fn make_RawStmt(self, stmt: Unique<'a, Node<'a>>) -> Unique<'a, &'a nodes::RawStmt> {
+    pub fn make_raw_stmt(self, stmt: Unique<'a, Node<'a>>) -> Unique<'a, &'a nodes::RawStmt> {
         let mut raw_stmt = self.make_node::<nodes::RawStmt>();
         raw_stmt.as_mut().set_stmt(stmt);
         raw_stmt
     }
 
-    #[allow(non_snake_case)]
-    pub fn make_ResTarget(
+    pub fn make_res_target(
         self,
         name: Option<&str>,
         indirection: Unique<'a, &'a NodeList>,
@@ -133,8 +125,7 @@ impl<'a> MemoryToken<'a> {
         Unique(res_target.into_ptr(), self.id, PhantomData)
     }
 
-    #[allow(non_snake_case)]
-    pub fn make_WithClause(
+    pub fn make_with_clause(
         self,
         ctes: Unique<'a, &'a CastNodeList<nodes::CommonTableExpr>>,
         recursive: bool,
@@ -246,15 +237,15 @@ where
     /// use pg_raw_parse::Node;
     ///
     /// owned(|mem| {
-    ///     let mut expr = mem.make_A_Expr(
+    ///     let mut expr = mem.make_a_expr(
     ///         AEXPR_OP,
     ///         mem.empty(),
     ///         mem.none(),
     ///         mem.none(),
     ///     );
     ///     owned(|mem2| {
-    ///         expr.as_mut().set_lexpr(mem2.make_String(Some("oops")).uncast());
-    ///         mem2.make_String(Some("lol"))
+    ///         expr.as_mut().set_lexpr(mem2.make_string(Some("oops")).uncast());
+    ///         mem2.make_string(Some("lol"))
     ///     });
     ///     expr
     /// });
@@ -266,13 +257,13 @@ where
     /// use pg_raw_parse::Node;
     ///
     /// let expr = owned(|mem| {
-    ///     let mut expr = mem.make_A_Expr(
+    ///     let mut expr = mem.make_a_expr(
     ///         AEXPR_OP,
     ///         mem.empty(),
     ///         mem.none(),
     ///         mem.none(),
     ///     );
-    ///     expr.as_mut().set_lexpr(mem.make_String(Some("lexpr")).uncast());
+    ///     expr.as_mut().set_lexpr(mem.make_string(Some("lexpr")).uncast());
     ///     expr
     /// });
     /// assert_eq!(Some("lexpr"), expr.lexpr().as_str());
@@ -325,8 +316,8 @@ impl PgStr<'_> {
 ///
 /// let mut node = None;
 /// owned(|mem| {
-///     node = Some(mem.make_String(Some("smuggled")));
-///     mem.make_String(Some("returned"))
+///     node = Some(mem.make_string(Some("smuggled")));
+///     mem.make_string(Some("returned"))
 /// });
 /// ```
 ///
@@ -334,8 +325,8 @@ impl PgStr<'_> {
 /// use pg_raw_parse::make::owned;
 ///
 /// owned(|mem1| {
-///     owned(|mem2| mem1.make_String(Some("wrong mem")));
-///     mem1.make_String(Some("right mem"))
+///     owned(|mem2| mem1.make_string(Some("wrong mem")));
+///     mem1.make_string(Some("right mem"))
 /// });
 /// ```
 pub fn owned<F, T>(f: F) -> Owned<T>
@@ -385,7 +376,7 @@ fn copy_null_pointer() {
 
 #[test]
 fn copy_node() {
-    let s = owned(|mem| mem.make_String(Some("hi")));
+    let s = owned(|mem| mem.make_string(Some("hi")));
     let copied_string = owned(|mem| {
         let copied_node = mem.make_unique(Node::String(&*s));
         assert_eq!(Some("hi"), copied_node.as_ref().as_str());
@@ -399,12 +390,12 @@ fn make_complex_node() {
     use crate::nodes::A_Expr_Kind;
 
     let a_expr = owned(|mem| {
-        mem.make_A_Expr(
+        mem.make_a_expr(
             A_Expr_Kind::AEXPR_OP,
-            mem.make_List(&[mem.make_String(Some("=")).uncast()]),
-            mem.make_ColumnRef(mem.make_List(&[mem.make_String(Some("id")).uncast()]))
+            mem.make_list(&[mem.make_string(Some("=")).uncast()]),
+            mem.make_column_ref(mem.make_list(&[mem.make_string(Some("id")).uncast()]))
                 .uncast(),
-            mem.make_A_Const(ConstValue::Integer(1)).uncast(),
+            mem.make_a_const(ConstValue::Integer(1)).uncast(),
         )
     });
 
@@ -425,12 +416,12 @@ fn make_complex_node() {
 fn make_node_with_cast_list() {
     let stmt = owned(|mem| {
         let mut select_stmt = mem.make_node::<nodes::SelectStmt>();
-        let list = mem.make_List(&[mem.make_ResTarget(
+        let list = mem.make_list(&[mem.make_res_target(
             None,
             mem.empty(),
-            mem.make_A_Const(ConstValue::Integer(1)).uncast(),
+            mem.make_a_const(ConstValue::Integer(1)).uncast(),
         )]);
-        select_stmt.as_mut().set_targetList(list);
+        select_stmt.as_mut().set_target_list(list);
         select_stmt
     });
 

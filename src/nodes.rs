@@ -1,4 +1,3 @@
-#![allow(non_snake_case)]
 use crate::const_val::ConstValue;
 use crate::make::{PgStr, Unique};
 use crate::raw::{self, __IncompleteArrayField, List, Node, ValUnion};
@@ -38,9 +37,9 @@ fn test_debug_output() {
     let stmt = result.stmts().next().unwrap();
     let expected = r#"SelectStmt(
     SelectStmt {
-        distinctClause: [],
-        intoClause: None,
-        targetList: [
+        distinct_clause: [],
+        into_clause: None,
+        target_list: [
             ResTarget {
                 name: None,
                 indirection: [],
@@ -57,7 +56,7 @@ fn test_debug_output() {
                 ..
             },
         ],
-        fromClause: [
+        from_clause: [
             RangeVar(
                 RangeVar {
                     catalogname: None,
@@ -72,7 +71,7 @@ fn test_debug_output() {
                 },
             ),
         ],
-        whereClause: A_Expr(
+        where_clause: A_Expr(
             A_Expr {
                 kind: AEXPR_OP,
                 name: [
@@ -114,17 +113,17 @@ fn test_debug_output() {
                 ..
             },
         ),
-        groupClause: [],
-        groupDistinct: false,
-        havingClause: None,
-        windowClause: [],
-        valuesLists: [],
-        sortClause: [],
-        limitOffset: None,
-        limitCount: None,
-        limitOption: 0,
-        lockingClause: [],
-        withClause: None,
+        group_clause: [],
+        group_distinct: false,
+        having_clause: None,
+        window_clause: [],
+        values_lists: [],
+        sort_clause: [],
+        limit_offset: None,
+        limit_count: None,
+        limit_option: 0,
+        locking_clause: [],
+        with_clause: None,
         op: 0,
         all: false,
         larg: None,

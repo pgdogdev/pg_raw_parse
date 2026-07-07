@@ -16,6 +16,7 @@ thiserror = "2.0.18"
 [build-dependencies]
 bindgen = "0.72.1"
 cc = "1.2.64"
+convert_case = "0.11.0"
 glob = "0.3.3"
 prettyplease = "0.2.37"
 regex = "1.12.4"

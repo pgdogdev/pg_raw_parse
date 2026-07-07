@@ -136,9 +136,9 @@ mod tests {
 
     #[test]
     fn test_integer_value() {
-        let smallint = owned(|mem| mem.make_Integer(1));
-        let bigint = owned(|mem| mem.make_Float(Some("1234567890")));
-        let boolval = owned(|mem| mem.make_Boolean(true));
+        let smallint = owned(|mem| mem.make_integer(1));
+        let bigint = owned(|mem| mem.make_float(Some("1234567890")));
+        let boolval = owned(|mem| mem.make_boolean(true));
 
         let smallunion = unsafe { &*(smallint.as_ptr()).cast() };
         let bigunion = unsafe { &*(bigint.as_ptr()).cast() };

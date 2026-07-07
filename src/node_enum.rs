@@ -39,8 +39,8 @@ fn test_node_as_list() {
     use crate::make::*;
 
     let list = owned(|mem| {
-        let int = mem.make_Integer(1);
-        mem.make_List(&[int.uncast()])
+        let int = mem.make_integer(1);
+        mem.make_list(&[int.uncast()])
     });
     let node = Node::NodeList(&list);
     let actual = node.expect_node_list().into_iter().collect::<Vec<_>>();
