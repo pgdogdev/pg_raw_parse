@@ -90,11 +90,8 @@ fn main() {
                 .to_str()
                 .unwrap(),
         )
-        .blocklist_item("makeDefElemExtended") // This type has multiple makefuncs
         .blocklist_item("makeColumnDef") // Has more logic than we want
-        .blocklist_item("makeTypeNameFromOid") // Parser doesn't know OIDs
         .blocklist_item("makeTypeName") // We map to the list form, not unqualified
-        .blocklist_item("makeSimpleA_Expr") // We map to the list form, not unqualified
         .generate()
         .unwrap()
         // SAFETY: YOLO
