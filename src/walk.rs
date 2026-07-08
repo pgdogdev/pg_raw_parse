@@ -1,5 +1,5 @@
 use crate::pg_error::PgError;
-use crate::{AsNodePtr, FromNodePtr, Node, NodeMut, nodes, raw};
+use crate::{AsNodePtr, FromNodeMut, FromNodePtr, Node, NodeMut, nodes, raw};
 use std::ffi::c_void;
 use std::ops::ControlFlow;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
@@ -152,7 +152,7 @@ where
     walk_catching_unwind(node.into_ptr(), |node| {
         // SAFETY: If we had a valid node come in, all its children should
         // also be valid.
-        let node = unsafe { NodeMut::from_raw(node, id) };
+        let node = unsafe { Node::from_ptr_mut(Some(node), id) };
         cb(node)
     })
 }

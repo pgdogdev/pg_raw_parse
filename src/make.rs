@@ -2,7 +2,7 @@ use crate::list::{CastNodeList, NodeList};
 use crate::mem::MemoryContext;
 use crate::raw::{self, *};
 use crate::{
-    AsNodePtr, ConstValue, ConstructableNode, FromNodeMut, FromNodePtr, Node, NodeMut, Owned, nodes,
+    AsNodePtr, ConstValue, ConstructableNode, FromNodeMut, FromNodePtr, Node, Owned, nodes,
 };
 use generativity::Id;
 use std::any::type_name;
@@ -224,10 +224,7 @@ impl<'a, T> Unique<'a, T> {
     }
 }
 
-impl<'a, T> Unique<'a, &'a T>
-where
-    T: FromNodeMut,
-{
+impl<'a, T: FromNodeMut<'a>> Unique<'a, T> {
     /// Get a mutable reference to the inner node, preventing any assignments
     /// that would mix memory contexts. Panics if called on a null pointer
     ///
@@ -269,21 +266,10 @@ where
     /// assert_eq!(Some("lexpr"), expr.lexpr().as_str());
     /// std::assert_matches!(expr.rexpr(), Node::None);
     /// ```
-    pub fn as_mut<'b>(&'b mut self) -> T::MutRef<'a, 'b> {
-        let ptr = NonNull::new(self.0)
-            .expect("as_mut called on a NULL pointer")
-            .cast();
+    pub fn as_mut(&mut self) -> T::MutRef<'_> {
+        let ptr = NonNull::new(self.0);
         // SAFETY: This was always constructed with a valid pointer
         unsafe { T::from_ptr_mut(ptr, self.1) }
-    }
-}
-
-impl<'a> Unique<'a, Node<'a>> {
-    /// Get a mutable reference to the inner node. See
-    /// [`Unique<'a, &'a T>::as_mut`] for more details
-    pub fn as_mut<'b>(&'b mut self) -> NodeMut<'a, 'b> {
-        let ptr = NonNull::new(self.0).expect("as_mut called on a NULL pointer");
-        unsafe { NodeMut::from_raw(ptr, self.1) }
     }
 }
 

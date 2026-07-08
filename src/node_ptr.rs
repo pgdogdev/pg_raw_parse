@@ -49,14 +49,27 @@ impl<T: FromNodePtr> FromNodePtr for Option<T> {
     }
 }
 
-pub trait FromNodeMut {
-    type MutRef<'a, 'b>;
+pub trait FromNodeMut<'a> {
+    type MutRef<'b>;
 
-    /// SAFETY: The caller must provide a valid pointer that was
-    /// allocated onto the MemoryContext referenced by 'a.
-    unsafe fn from_ptr_mut<'a, 'b>(ptr: NonNull<Self>, id: Id<'a>) -> Self::MutRef<'a, 'b>;
+    /// # Safety
+    ///
+    /// The caller must provide a valid pointer that was allocated onto the
+    /// MemoryContext referenced by 'a. The pointer must be a valid pointer to
+    /// a node of type Self. Implementors of this function may not check the
+    /// tag before casting the pointer
+    unsafe fn from_ptr_mut<'b>(ptr: Option<NonNull<raw::Node>>, id: Id<'a>) -> Self::MutRef<'b>;
 }
 
 pub trait ConstructableNode: Sized {
     const TAG: NodeTag;
+}
+
+impl<'a, T: FromNodeMut<'a>> FromNodeMut<'a> for Option<T> {
+    type MutRef<'b> = Option<T::MutRef<'b>>;
+
+    unsafe fn from_ptr_mut<'b>(ptr: Option<NonNull<raw::Node>>, id: Id<'a>) -> Self::MutRef<'b> {
+        // SAFETY: Caller is responsible for making this safe
+        ptr.map(|_| unsafe { T::from_ptr_mut(ptr, id) })
+    }
 }
