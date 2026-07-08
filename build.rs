@@ -789,7 +789,7 @@ fn generate_node_enum(
     });
 
     out_file.items.push(parse_quote! {
-        impl<'a> FromNodeMut<'a> for Node<'a> {
+        impl<'a> FromNodeMut<'a> for Node<'_> {
             type MutRef<'b> = NodeMut<'a, 'b>;
 
             unsafe fn from_ptr_mut<'b>(
