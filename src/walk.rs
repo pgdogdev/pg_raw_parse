@@ -311,6 +311,15 @@ fn walk_mutable_tree() {
         let mut copy = mem.make_unique(stmt);
         walk_mut(copy.as_mut().into(), |node| match node {
             NodeMut::FuncCall(f) => {
+                for part in f.funcname_mut() {
+                    match part {
+                        NodeMut::String(mut s) => {
+                            let new_name = s.sval().map(|s| mem.copy_string(&format!("foo{s}")));
+                            s.set_sval(new_name);
+                        }
+                        _ => unreachable!(),
+                    }
+                }
                 f.funcname_mut()
                     .insert(mem, 0, mem.make_string(Some("foo")).uncast());
             }
@@ -320,6 +329,6 @@ fn walk_mutable_tree() {
     });
     assert_eq!(
         deparse(&*fooified).unwrap().as_str(),
-        "WITH lol AS (INSERT INTO users VALUES (foo.bar(2))) SELECT foo.foo(1) FROM users WHERE id = foo.baz(3)"
+        "WITH lol AS (INSERT INTO users VALUES (foo.foobar(2))) SELECT foo.foofoo(1) FROM users WHERE id = foo.foobaz(3)"
     );
 }
