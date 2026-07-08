@@ -9,7 +9,7 @@ use std::any::type_name;
 use std::ffi::{c_char, c_int};
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::ptr::{self, NonNull};
+use std::ptr;
 
 include!(concat!(env!("OUT_DIR"), "/make_funcs_raw.rs"));
 
@@ -138,7 +138,7 @@ impl<'a> MemoryToken<'a> {
 
     /// Performs a deep copy of the given node onto this memory context,
     /// returning a unique pointer to it.
-    pub fn make_unique<T: AsNodePtr>(self, node: T) -> Unique<'a, T::ConvertLifetime<'a>> {
+    pub fn make_unique<T: AsNodePtr>(self, node: T) -> Unique<'a, T::AsRef<'a>> {
         let node_ptr = node.as_ptr();
         let mut err = ptr::null_mut();
         // SAFETY: This never panics
@@ -186,9 +186,54 @@ impl<'a> MemoryToken<'a> {
         Unique(ptr::null_mut(), self.id, PhantomData)
     }
 
+    /// Returns an empty typed list
+    pub fn cast_empty<T>(self) -> Unique<'a, &'a CastNodeList<T>> {
+        Unique(ptr::null_mut(), self.id, PhantomData)
+    }
+
     /// Returns a NULL pointer to a node (a.k.a. None)
     pub fn none(self) -> Unique<'a, Node<'a>> {
         Unique(ptr::null_mut(), self.id, PhantomData)
+    }
+
+    pub(crate) fn lappend<T: AsNodePtr>(
+        self,
+        list: *mut raw::List,
+        elem: Unique<'a, T>,
+    ) -> Unique<'a, &'a T::List> {
+        // SAFETY: This never panics
+        let new_list = unsafe {
+            self.mem
+                .within(|| raw::lappend(list, elem.into_ptr().cast()))
+        };
+        Unique(new_list.cast(), self.id, PhantomData)
+    }
+
+    pub(crate) fn list_insert_nth<T: AsNodePtr>(
+        self,
+        list: *mut raw::List,
+        idx: usize,
+        elem: Unique<'a, T>,
+    ) -> Unique<'a, &'a T::List> {
+        // SAFETY: This never panics
+        let new_list = unsafe {
+            self.mem
+                .within(|| raw::list_insert_nth(list, idx as _, elem.into_ptr().cast()))
+        };
+        Unique(new_list.cast(), self.id, PhantomData)
+    }
+
+    pub(crate) fn list_concat<T>(
+        self,
+        list: *mut raw::List,
+        elems: Unique<'a, T>,
+    ) -> Unique<'a, T> {
+        // SAFETY: This never panics
+        let new_list = unsafe {
+            self.mem
+                .within(|| raw::list_concat(list, elems.into_ptr().cast()))
+        };
+        Unique(new_list.cast(), self.id, PhantomData)
     }
 }
 
@@ -267,9 +312,8 @@ impl<'a, T: FromNodeMut<'a>> Unique<'a, T> {
     /// std::assert_matches!(expr.rexpr(), Node::None);
     /// ```
     pub fn as_mut(&mut self) -> T::MutRef<'_> {
-        let ptr = NonNull::new(self.0);
         // SAFETY: This was always constructed with a valid pointer
-        unsafe { T::from_ptr_mut(ptr, self.1) }
+        unsafe { T::from_ptr_mut(&mut self.0, self.1) }
     }
 }
 

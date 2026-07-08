@@ -89,7 +89,7 @@ pub fn walk_manual<'a, B>(
 /// });
 pub fn walk_mut<'a, 'b, F>(node: NodeMut<'a, 'b>, mut f: F)
 where
-    for<'c> F: FnMut(NodeMut<'a, 'c>),
+    F: FnMut(&mut NodeMut<'a, '_>),
 {
     walk_expression_tree_mut(node, |node| {
         f(node);
@@ -146,14 +146,15 @@ where
 
 fn walk_expression_tree_mut<'a, 'b, F>(node: NodeMut<'a, 'b>, mut cb: F)
 where
-    for<'c> F: FnMut(NodeMut<'a, 'c>) -> ControlFlow<(), Recurse>,
+    F: FnMut(&mut NodeMut<'a, '_>) -> ControlFlow<(), Recurse>,
 {
     let id = node.id();
     walk_catching_unwind(node.into_ptr(), |node| {
         // SAFETY: If we had a valid node come in, all its children should
         // also be valid.
-        let node = unsafe { Node::from_ptr_mut(Some(node), id) };
-        cb(node)
+        let mut p = node.as_ptr();
+        let mut node = unsafe { Node::from_ptr_mut(&mut p, id) };
+        cb(&mut node)
     })
 }
 
@@ -309,15 +310,9 @@ fn walk_mutable_tree() {
     let fooified = make::owned(|mem| {
         let mut copy = mem.make_unique(stmt);
         walk_mut(copy.as_mut().into(), |node| match node {
-            NodeMut::FuncCall(mut f) => {
-                // FIXME(sage): We need a more ergonomic way to mutate lists.
-                // At absolute minimum we need a way to get
-                // `Vec<Unique<'_, Node>>` from a list field of a
-                // `Unique<'a, T>` that doesn't require copying.
-                let old_name = f.funcname().into_iter().map(|n| mem.make_unique(n));
-                let mut new_name = vec![mem.make_string(Some("foo")).uncast()];
-                new_name.extend(old_name);
-                f.set_funcname(mem.make_list(&new_name));
+            NodeMut::FuncCall(f) => {
+                f.funcname_mut()
+                    .insert(mem, 0, mem.make_string(Some("foo")).uncast());
             }
             _ => (),
         });
