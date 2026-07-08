@@ -1,4 +1,6 @@
-use crate::{AsNodePtr, ConstructableNode, FromNodeMut, FromNodePtr, list, nodes, raw};
+use crate::{
+    AsNodePtr, AsNodeRef, ConstructableNode, FromNodeMut, FromNodePtr, list, list_mut, nodes, raw,
+};
 use generativity::Id;
 use std::ptr::NonNull;
 
@@ -29,6 +31,36 @@ impl<'a> Node<'a> {
     pub fn as_str(self) -> Option<&'a str> {
         match self {
             Node::String(s) => s.sval(),
+            _ => None,
+        }
+    }
+}
+
+impl<'a, 'b> NodeMut<'a, 'b> {
+    /// Get the node list value of self. Returns None if self is not a NodeList
+    #[inline]
+    pub fn as_node_list(self) -> Option<list_mut::NodeListMut<'a, 'b, list::NodeList>> {
+        match self {
+            // Can't give a mut ref to empty lists yet
+            Self::None(_) => None,
+            Self::NodeList(l) => Some(l),
+            _ => None,
+        }
+    }
+
+    /// Get the node list value of self. Panics if self is not a NodeList
+    #[inline]
+    pub fn expect_node_list(self) -> list_mut::NodeListMut<'a, 'b, list::NodeList> {
+        self.as_node_list()
+            .unwrap_or_else(|| panic!("Expected a node list"))
+    }
+
+    /// Get the string value of self. Returns None if this is not a
+    /// Node::String
+    #[inline]
+    pub fn as_str(&self) -> Option<&'_ str> {
+        match self {
+            Self::String(s) => s.sval(),
             _ => None,
         }
     }

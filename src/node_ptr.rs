@@ -2,22 +2,36 @@ use crate::raw::{self, NodeTag};
 use generativity::Id;
 use std::ptr::{self, NonNull};
 
+pub trait AsNodeRef {
+    type AsRef<'b>: AsNodePtr;
+    type List: List;
+}
+
+impl<T: AsNodeRef> AsNodeRef for Option<T> {
+    type AsRef<'b> = Option<T::AsRef<'b>>;
+    type List = T::List;
+}
+
+impl<'a, T: AsNodeRef> AsNodeRef for &'a T {
+    type AsRef<'b> = T::AsRef<'b>;
+    type List = T::List;
+}
+
+impl<'a, T: AsNodeRef> AsNodeRef for &'a mut T {
+    type AsRef<'b> = T::AsRef<'b>;
+    type List = T::List;
+}
+
 /// # Safety
 ///
 /// [AsNodePtr::as_ptr] must convert back to Self when passed to
 /// [FromNodePtr::from_ptr]
-pub unsafe trait AsNodePtr {
-    type ConvertLifetime<'b>;
-    type List;
-
+pub unsafe trait AsNodePtr: AsNodeRef {
     fn as_ptr(self) -> *mut raw::Node;
 }
 
 // SAFETY: If &T is a node, Option<&T> is also a Node
 unsafe impl<T: AsNodePtr> AsNodePtr for Option<T> {
-    type ConvertLifetime<'b> = Option<T::ConvertLifetime<'b>>;
-    type List = T::List;
-
     fn as_ptr(self) -> *mut raw::Node {
         match self {
             Some(node) => node.as_ptr(),
@@ -58,18 +72,29 @@ pub trait FromNodeMut<'a> {
     /// MemoryContext referenced by 'a. The pointer must be a valid pointer to
     /// a node of type Self. Implementors of this function may not check the
     /// tag before casting the pointer
-    unsafe fn from_ptr_mut<'b>(ptr: Option<NonNull<raw::Node>>, id: Id<'a>) -> Self::MutRef<'b>;
+    unsafe fn from_ptr_mut<'b>(ptr: &'b mut *mut raw::Node, id: Id<'a>) -> Self::MutRef<'b>;
+}
+
+impl<'a, T: FromNodeMut<'a>> FromNodeMut<'a> for Option<T> {
+    type MutRef<'b> = Option<T::MutRef<'b>>;
+
+    unsafe fn from_ptr_mut<'b>(ptr: &'b mut *mut raw::Node, id: Id<'a>) -> Self::MutRef<'b> {
+        if ptr.is_null() {
+            None
+        } else {
+            // SAFETY: Caller is responsible for making this safe
+            Some(unsafe { T::from_ptr_mut(ptr, id) })
+        }
+    }
 }
 
 pub trait ConstructableNode: Sized {
     const TAG: NodeTag;
 }
 
-impl<'a, T: FromNodeMut<'a>> FromNodeMut<'a> for Option<T> {
-    type MutRef<'b> = Option<T::MutRef<'b>>;
+pub trait List: 'static {
+    type Elem<'a>: AsNodePtr;
+    const EMPTY: &Self;
 
-    unsafe fn from_ptr_mut<'b>(ptr: Option<NonNull<raw::Node>>, id: Id<'a>) -> Self::MutRef<'b> {
-        // SAFETY: Caller is responsible for making this safe
-        ptr.map(|_| unsafe { T::from_ptr_mut(ptr, id) })
-    }
+    fn len(&self) -> usize;
 }

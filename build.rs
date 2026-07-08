@@ -123,6 +123,9 @@ fn main() {
         .allowlist_item("wrapped_raw_deparse")
         .allowlist_item("wrapped_pnstrdup")
         .allowlist_item("list_copy")
+        .allowlist_item("lappend")
+        .allowlist_item("list_insert_nth")
+        .allowlist_item("list_concat")
         .allowlist_item("wrapped_copy_object")
         .allowlist_item("newNode")
         .wrap_static_fns(true)
@@ -202,21 +205,12 @@ impl NodeField {
         match &self.ty {
             Private(_) | Primitive(_) => None,
 
-            Node | List | CastList(_) => Some(parse_quote! {
+            Node | CastNode(_) | List | CastList(_) => Some(parse_quote! {
                 #(#fattrs)*
                 #[inline]
                 pub fn #fname(&self) -> #ret {
                     // SAFETY: The lifetime is not longer than self
                     unsafe { crate::FromNodePtr::from_raw(self.#fname.cast()) }
-                }
-            }),
-
-            CastNode(_) => Some(parse_quote! {
-                #(#fattrs)*
-                #[inline]
-                pub fn #fname(&self) -> #ret {
-                    // SAFETY: Pointer will always be valid or NULL
-                    unsafe { self.#fname.as_ref() }
                 }
             }),
 
@@ -256,12 +250,21 @@ impl NodeField {
 
         let fname = &self.name;
         let func_name = syn::Ident::new(&format!("{fname}_mut"), fname.span());
+        let inner = &self.ty(&lt);
         match &self.ty {
             // No reason to provide for these, user can just `&mut node.field`
             Private(_) | Primitive(_) => None,
 
-            // We don't provide mutable lists yet
-            List | CastList(_) => None,
+            Node | CastNode(_) | List | CastList(_) => Some(parse_quote! {
+                #[inline]
+                pub fn #func_name(&mut self) -> <#inner as FromNodeMut<#lt>>::MutRef<'_> {
+                    // SAFETY: The pointer will always be valid or NULL.
+                    // The lifetime won't outlive self
+                    unsafe {
+                        <#inner as FromNodeMut>::from_ptr_mut(&mut self.mut_ref.#fname, self.id)
+                    }
+                }
+            }),
 
             // We can't provide mutable strings, and there's no reason to.
             CString => None,
@@ -270,24 +273,6 @@ impl NodeField {
             // primitive or a string. We don't provide mut accessors for either
             // of those, so we don't provide them for this
             ConstVal => None,
-
-            Node => Some(parse_quote! {
-                #[inline]
-                pub fn #func_name(&mut self) -> NodeMut<#lt, '_> {
-                    let ptr = NonNull::new(self.mut_ref.#fname);
-                    // The field is always a valid pointer or NULL
-                    unsafe { crate::Node::from_ptr_mut(ptr, self.id) }
-                }
-            }),
-
-            CastNode(node) => Some(parse_quote! {
-                #[inline]
-                pub fn #func_name(&mut self) -> <Option<&#lt #node> as FromNodeMut<#lt>>::MutRef<'_> {
-                    let ptr = NonNull::new(self.mut_ref.#fname.cast());
-                    // The field is always a valid pointer or NULL
-                    unsafe { Option::<&#lt #node>::from_ptr_mut(ptr, self.id) }
-                }
-            }),
         }
     }
 
@@ -386,9 +371,9 @@ impl NodeFieldType {
     fn raw_ty(&self) -> syn::Type {
         match self {
             Self::Private(t) | Self::Primitive(t) => t.clone(),
-            Self::Node => parse_quote!(*mut Node),
-            Self::CastNode(t) => parse_quote!(*mut #t),
-            Self::List | Self::CastList(_) => parse_quote!(*mut List),
+            Self::Node | Self::CastNode(_) | Self::List | Self::CastList(_) => {
+                parse_quote!(*mut Node)
+            }
             Self::CString => parse_quote!(*mut std::ffi::c_char),
             Self::ConstVal => parse_quote!(ValUnion),
         }
@@ -644,23 +629,27 @@ fn generate_node_structs(
                 type MutRef<'b> = #smut<'a, 'b>;
 
                 unsafe fn from_ptr_mut<'b>(
-                    ptr: Option<NonNull<Node>>,
+                    ptr: &'b mut *mut Node,
                     id: Id<'a>,
                 ) -> Self::MutRef<'b> {
-                    let mut ptr = ptr.expect("from_ptr_mut called on a NULL pointer").cast();
                     // SAFETY: Caller is responsible for making this safe
-                    let mut_ref = unsafe { ptr.as_mut() };
+                    let mut_ref = unsafe { ptr.cast::<#sname>().as_mut() }
+                        .expect("from_ptr_mut called on a NULL pointer");
                     #smut { id, mut_ref }
                 }
             }
         });
 
         out_file.items.push(parse_quote! {
+            impl crate::AsNodeRef for #sname {
+                type AsRef<'b> = &'b #sname;
+                type List = crate::list::CastNodeList<#sname>;
+            }
+        });
+
+        out_file.items.push(parse_quote! {
             // SAFETY: Self is a type of node
             unsafe impl<'a> crate::AsNodePtr for &'a #sname {
-                type ConvertLifetime<'b> = &'b #sname;
-                type List = crate::list::CastNodeList<#sname>;
-
                 fn as_ptr(self) -> *mut Node {
                     std::ptr::from_ref(self).cast_mut().cast()
                 }
@@ -779,11 +768,15 @@ fn generate_node_enum(
     });
 
     out_file.items.push(parse_quote! {
+        impl<'a> AsNodeRef for Node<'a> {
+            type AsRef<'b> = Node<'b>;
+            type List = crate::list::NodeList;
+        }
+    });
+
+    out_file.items.push(parse_quote! {
         // SAFETY: We are returning the inner pointer from as_ptr
         unsafe impl<'a> AsNodePtr for Node<'a> {
-            type ConvertLifetime<'b> = Node<'b>;
-            type List = crate::list::NodeList;
-
             fn as_ptr(self) -> *mut raw::Node {
                 match self {
                     Self::None => std::ptr::null_mut(),
@@ -800,17 +793,19 @@ fn generate_node_enum(
             type MutRef<'b> = NodeMut<'a, 'b>;
 
             unsafe fn from_ptr_mut<'b>(
-                ptr: Option<NonNull<raw::Node>>,
+                ptr: &'b mut *mut raw::Node,
                 id: Id<'a>,
             ) -> Self::MutRef<'b> {
-                // SAFETY: Caller is responsible for making this safe
+                // SAFETY: Pointer is not null. Caller is responsible for making
+                // this safe.
                 unsafe {
-                    match ptr.map(|p| p.as_ref().type_) {
+                    match ptr.as_ref().map(|p| p.type_) {
                         None => NodeMut::None(id),
                         #(Some(nodes::#node_names::TAG) => {
                             NodeMut::#node_names(<&'a nodes::#node_names>::from_ptr_mut(ptr, id))
                         })*
-                        Some(_) => NodeMut::Invalid(ptr.unwrap(), id),
+                        Some(raw::NodeTag_T_List) => NodeMut::NodeList(<&'a crate::list::NodeList>::from_ptr_mut(ptr, id)),
+                        Some(_) => NodeMut::Invalid(NonNull::new(*ptr).unwrap(), id),
                     }
                 }
             }
@@ -826,6 +821,7 @@ fn generate_node_enum(
         pub enum NodeMut<'a, 'b> {
             /// A NULL pointer to a node
             None(Id<'a>) = 0,
+            NodeList(<&'a crate::list::NodeList as FromNodeMut<'a>>::MutRef<'b>) = raw::NodeTag_T_List,
             #(#enum_variants,)*
             /// A pointer to a node that wasn't part of a parse tree, or that
             /// pg_raw_parse doesn't know how to generate code for.
@@ -840,6 +836,7 @@ fn generate_node_enum(
             pub(crate) fn id(&self) -> Id<'a> {
                 match self {
                     Self::None(id) => *id,
+                    Self::NodeList(list) => list.id,
                     #(Self::#node_names(n) => n.id,)*
                     Self::Invalid(_, id) => *id,
                 }
@@ -849,6 +846,7 @@ fn generate_node_enum(
             pub(crate) fn into_ptr(self) -> *mut raw::Node {
                 match self {
                     Self::None(_) => std::ptr::null_mut(),
+                    Self::NodeList(mut list) => list.take_ptr().cast(),
                     #(Self::#node_names(p) => p.as_ptr(),)*
                     Self::Invalid(p, _) => p.as_ptr(),
                 }

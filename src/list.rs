@@ -1,4 +1,5 @@
-use crate::{AsNodePtr, FromNodePtr, Node, raw};
+use crate::list_mut::NodeListMut;
+use crate::{AsNodePtr, AsNodeRef, FromNodeMut, FromNodePtr, List, Node, raw};
 use std::ffi::c_int;
 use std::iter::FusedIterator;
 use std::marker::PhantomData;
@@ -44,7 +45,7 @@ impl NodeList {
 
     /// Casts this list to a specific node type. The returned iterator will
     /// panic if it encounters an unexpected node
-    pub(crate) fn cast<T>(&self) -> &CastNodeList<T> {
+    pub(crate) const fn cast<T>(&self) -> &CastNodeList<T> {
         // SAFETY: CastNodeList is #[repr(transparent)] over NodeList
         unsafe { &*(&raw const *self).cast() }
     }
@@ -93,11 +94,13 @@ impl fmt::Debug for NodeList {
     }
 }
 
+impl AsNodeRef for NodeList {
+    type AsRef<'b> = &'b NodeList;
+    type List = NodeList;
+}
+
 // SAFETY: We are returning NULL for empty lists, or a valid pointer
 unsafe impl AsNodePtr for &NodeList {
-    type ConvertLifetime<'b> = &'b NodeList;
-    type List = NodeList;
-
     fn as_ptr(self) -> *mut raw::Node {
         if self.is_empty() {
             ptr::null_mut()
@@ -111,6 +114,34 @@ impl FromNodePtr for &NodeList {
     unsafe fn from_ptr(tag: raw::NodeTag, ptr: Option<NonNull<raw::Node>>) -> Self {
         // SAFETY: Caller is responsible for making this safe
         unsafe { Node::from_ptr(tag, ptr) }.expect_node_list()
+    }
+}
+
+impl<'a> FromNodeMut<'a> for &'a NodeList {
+    type MutRef<'b> = NodeListMut<'a, 'b, NodeList>;
+
+    unsafe fn from_ptr_mut<'b>(
+        ptr: &'b mut *mut raw::Node,
+        id: generativity::Id<'a>,
+    ) -> Self::MutRef<'b> {
+        // SAFETY: &mut *mut T has the same repr as &mut Option<&mut T>. Caller
+        // is responsible for making this otherwise safe.
+        let mut_ref = unsafe {
+            ptr::from_mut(ptr)
+                .cast::<Option<&mut _>>()
+                .as_mut()
+                .unwrap()
+        };
+        NodeListMut::new(id, mut_ref)
+    }
+}
+
+impl List for NodeList {
+    type Elem<'a> = Node<'a>;
+    const EMPTY: &Self = &EMPTY_LIST;
+
+    fn len(&self) -> usize {
+        self.len()
     }
 }
 
@@ -265,5 +296,55 @@ impl<'a, T> FromNodePtr for &'a CastNodeList<T> {
     unsafe fn from_ptr(tag: raw::NodeTag, ptr: Option<NonNull<raw::Node>>) -> Self {
         // SAFETY: Caller is responsible for making this safe
         unsafe { <&'a NodeList>::from_ptr(tag, ptr) }.cast()
+    }
+}
+
+impl<T> AsNodeRef for CastNodeList<T>
+where
+    Self: List,
+{
+    type AsRef<'a> = &'a CastNodeList<T>;
+    type List = CastNodeList<T>;
+}
+
+// SAFETY: We are returning NULL for empty lists, or a valid pointer
+unsafe impl<'a, T> AsNodePtr for &'a CastNodeList<T>
+where
+    Self: AsNodeRef,
+{
+    fn as_ptr(self) -> *mut raw::Node {
+        self.list.as_ptr()
+    }
+}
+
+impl<'a, T: 'static> FromNodeMut<'a> for &'a CastNodeList<T> {
+    type MutRef<'b> = NodeListMut<'a, 'b, CastNodeList<T>>;
+
+    unsafe fn from_ptr_mut<'b>(
+        ptr: &'b mut *mut raw::Node,
+        id: generativity::Id<'a>,
+    ) -> Self::MutRef<'b> {
+        // SAFETY: &mut *mut T has the same repr as &mut Option<&mut T>. Caller
+        // is responsible for making this otherwise safe.
+        let mut_ref = unsafe {
+            ptr::from_mut(ptr)
+                .cast::<Option<&mut _>>()
+                .as_mut()
+                .unwrap()
+        };
+        NodeListMut::new(id, mut_ref)
+    }
+}
+
+impl<T> List for CastNodeList<T>
+where
+    Self: 'static,
+    for<'a> &'a T: AsNodePtr,
+{
+    type Elem<'a> = &'a T;
+    const EMPTY: &Self = &EMPTY_LIST.cast();
+
+    fn len(&self) -> usize {
+        self.len()
     }
 }
