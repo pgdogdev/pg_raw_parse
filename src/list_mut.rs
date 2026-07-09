@@ -103,7 +103,16 @@ where
     type Item = <Self::IntoIter as Iterator>::Item;
 
     fn into_iter(self) -> Self::IntoIter {
-        todo!()
+        let iter = self
+            .mut_ref
+            .as_mut()
+            .map(|l| l.slice().iter_mut())
+            .unwrap_or([].iter_mut());
+        NodeIterMut {
+            id: self.id,
+            iter,
+            _marker: PhantomData,
+        }
     }
 }
 
@@ -149,4 +158,24 @@ fn list_push() {
 
     assert_eq!(1, list.len());
     assert_eq!(Some("hi"), list.first().unwrap().as_str());
+}
+
+#[test]
+fn list_mut_iter() {
+    let strings = crate::make::owned(|mem| {
+        let mut list = mem.make_list(&[
+            mem.make_string(Some("foo")),
+            mem.make_string(Some("bar")),
+            mem.make_string(Some("baz")),
+        ]);
+        for mut s in list.as_mut() {
+            s.set_sval(s.sval().map(|s| mem.copy_string(&s.to_uppercase())));
+        }
+        list
+    });
+
+    assert_eq!(
+        vec!["FOO", "BAR", "BAZ"],
+        strings.iter().filter_map(|s| s.sval()).collect::<Vec<_>>()
+    );
 }

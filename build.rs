@@ -625,7 +625,7 @@ fn generate_node_structs(
         });
 
         out_file.items.push(parse_quote! {
-            impl<'a> crate::FromNodeMut<'a> for &'a #sname {
+            impl<'a> crate::FromNodeMut<'a> for &#sname {
                 type MutRef<'b> = #smut<'a, 'b>;
 
                 unsafe fn from_ptr_mut<'b>(

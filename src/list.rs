@@ -143,6 +143,11 @@ impl List for NodeList {
     fn len(&self) -> usize {
         self.len()
     }
+
+    fn slice(&mut self) -> &mut [*mut raw::Node] {
+        // SAFETY: PG guarantees that any non-null list pointer has a length > 1
+        unsafe { slice::from_raw_parts_mut(self.elements.as_ptr(), self.len()) }
+    }
 }
 
 // SAFETY: No reason we can't share nodes across threads
@@ -346,5 +351,9 @@ where
 
     fn len(&self) -> usize {
         self.len()
+    }
+
+    fn slice(&mut self) -> &mut [*mut raw::Node] {
+        self.list.slice()
     }
 }
