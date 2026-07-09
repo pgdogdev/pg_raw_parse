@@ -14,6 +14,7 @@ pub mod nodes;
 mod owned;
 mod pg_error;
 pub mod raw;
+pub mod transform;
 pub mod walk;
 
 pub use crate::const_val::ConstValue;
