@@ -51,6 +51,20 @@ where
     T: List,
     T::Elem<'a>: AsNodeRef<List = T>,
 {
+    pub fn get(&self, idx: usize) -> Option<T::Elem<'_>> {
+        self.mut_ref.as_ref().and_then(|l| l.get(idx))
+    }
+
+    /// Assigns the given element to the specified index. Equivalent to `[]=`.
+    pub fn set(&mut self, idx: usize, elem: Unique<'a, T::Elem<'a>>) {
+        let slice = self
+            .mut_ref
+            .as_mut()
+            .unwrap_or_else(|| panic!("Index {idx} is out of bounds"))
+            .slice();
+        slice[idx] = elem.into_ptr();
+    }
+
     pub fn push(&mut self, mem: MemoryToken<'a>, elem: Unique<'a, T::Elem<'a>>) {
         let new_ptr = mem.lappend(self.take_ptr(), elem);
         self.replace_ptr(new_ptr);
@@ -178,4 +192,25 @@ fn list_mut_iter() {
         vec!["FOO", "BAR", "BAZ"],
         strings.iter().filter_map(|s| s.sval()).collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn get_and_set() {
+    crate::make::owned(|mem| {
+        let mut list = mem.make_list(&[
+            mem.make_string(Some("foo")),
+            mem.make_string(Some("bar")),
+            mem.make_string(Some("baz")),
+        ]);
+
+        assert_eq!(Some("foo"), list.get(0).and_then(|s| s.sval()));
+        assert_eq!(Some("bar"), list.get(1).and_then(|s| s.sval()));
+
+        list.as_mut().set(1, mem.make_string(Some("wibble")));
+
+        assert_eq!(Some("foo"), list.get(0).and_then(|s| s.sval()));
+        assert_eq!(Some("wibble"), list.get(1).and_then(|s| s.sval()));
+
+        list
+    });
 }

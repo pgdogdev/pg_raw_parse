@@ -51,6 +51,11 @@ impl NodeList {
     }
 
     #[inline]
+    pub fn get(&self, idx: usize) -> Option<Node<'_>> {
+        List::get(self, idx)
+    }
+
+    #[inline]
     pub fn iter(&self) -> <&Self as IntoIterator>::IntoIter {
         self.into_iter()
     }
@@ -142,6 +147,13 @@ impl List for NodeList {
 
     fn len(&self) -> usize {
         self.len()
+    }
+
+    fn get(&self, idx: usize) -> Option<Self::Elem<'_>> {
+        self.as_slice().get(idx).map(|p| {
+            // SAFETY: The pointer is always valid or NULL
+            unsafe { FromNodePtr::from_raw(*p) }
+        })
     }
 
     fn slice(&mut self) -> &mut [*mut raw::Node] {
@@ -237,6 +249,14 @@ pub struct CastNodeList<T> {
 }
 
 impl<T> CastNodeList<T> {
+    #[inline]
+    pub fn get(&self, idx: usize) -> Option<<Self as List>::Elem<'_>>
+    where
+        Self: List,
+    {
+        List::get(self, idx)
+    }
+
     #[inline]
     pub fn iter<'a>(&'a self) -> <&'a Self as IntoIterator>::IntoIter
     where
@@ -344,13 +364,20 @@ impl<'a, T: 'static> FromNodeMut<'a> for &'a CastNodeList<T> {
 impl<T> List for CastNodeList<T>
 where
     Self: 'static,
-    for<'a> &'a T: AsNodePtr,
+    for<'a> &'a T: AsNodePtr + FromNodePtr,
 {
     type Elem<'a> = &'a T;
     const EMPTY: &Self = &EMPTY_LIST.cast();
 
     fn len(&self) -> usize {
         self.len()
+    }
+
+    fn get(&self, idx: usize) -> Option<Self::Elem<'_>> {
+        self.list.as_slice().get(idx).map(|p| {
+            // SAFETY: The pointer is always valid or NULL
+            unsafe { FromNodePtr::from_raw(*p) }
+        })
     }
 
     fn slice(&mut self) -> &mut [*mut raw::Node] {

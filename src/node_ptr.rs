@@ -97,5 +97,6 @@ pub trait List: 'static {
     const EMPTY: &Self;
 
     fn len(&self) -> usize;
+    fn get(&self, idx: usize) -> Option<Self::Elem<'_>>;
     fn slice(&mut self) -> &mut [*mut raw::Node];
 }
