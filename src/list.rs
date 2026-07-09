@@ -122,13 +122,13 @@ impl FromNodePtr for &NodeList {
     }
 }
 
-impl<'a> FromNodeMut<'a> for &'a NodeList {
-    type MutRef<'b> = NodeListMut<'a, 'b, NodeList>;
+impl<'mem> FromNodeMut<'mem> for &'mem NodeList {
+    type MutRef<'mutref> = NodeListMut<'mem, 'mutref, NodeList>;
 
-    unsafe fn from_ptr_mut<'b>(
-        ptr: &'b mut *mut raw::Node,
-        id: generativity::Id<'a>,
-    ) -> Self::MutRef<'b> {
+    unsafe fn from_ptr_mut<'mutref>(
+        ptr: &'mutref mut *mut raw::Node,
+        id: generativity::Id<'mem>,
+    ) -> Self::MutRef<'mutref> {
         // SAFETY: &mut *mut T has the same repr as &mut Option<&mut T>. Caller
         // is responsible for making this otherwise safe.
         let mut_ref = unsafe {
@@ -342,13 +342,13 @@ where
     }
 }
 
-impl<'a, T: 'static> FromNodeMut<'a> for &'a CastNodeList<T> {
-    type MutRef<'b> = NodeListMut<'a, 'b, CastNodeList<T>>;
+impl<'mem, T: 'static> FromNodeMut<'mem> for &'mem CastNodeList<T> {
+    type MutRef<'mutref> = NodeListMut<'mem, 'mutref, CastNodeList<T>>;
 
-    unsafe fn from_ptr_mut<'b>(
-        ptr: &'b mut *mut raw::Node,
-        id: generativity::Id<'a>,
-    ) -> Self::MutRef<'b> {
+    unsafe fn from_ptr_mut<'mutref>(
+        ptr: &'mutref mut *mut raw::Node,
+        id: generativity::Id<'mem>,
+    ) -> Self::MutRef<'mutref> {
         // SAFETY: &mut *mut T has the same repr as &mut Option<&mut T>. Caller
         // is responsible for making this otherwise safe.
         let mut_ref = unsafe {

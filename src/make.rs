@@ -39,13 +39,13 @@ include!(concat!(env!("OUT_DIR"), "/make_funcs_raw.rs"));
 /// });
 /// ```
 #[derive(Clone, Copy)]
-pub struct MemoryToken<'a> {
-    mem: &'a MemoryContext,
-    id: Id<'a>,
+pub struct MemoryToken<'mem> {
+    mem: &'mem MemoryContext,
+    id: Id<'mem>,
 }
 
-impl<'a> MemoryToken<'a> {
-    pub fn make_a_const(self, val: ConstValue<'a>) -> Unique<'a, &'a nodes::A_Const> {
+impl<'mem> MemoryToken<'mem> {
+    pub fn make_a_const(self, val: ConstValue<'mem>) -> Unique<'mem, &'mem nodes::A_Const> {
         let mut node = self.make_node::<nodes::A_Const>();
         node.as_mut().set_isnull(false);
         node.as_mut().set_val(val.as_raw(self));
@@ -54,8 +54,8 @@ impl<'a> MemoryToken<'a> {
 
     pub fn make_column_ref(
         self,
-        fields: Unique<'a, &'a NodeList>,
-    ) -> Unique<'a, &'a nodes::ColumnRef> {
+        fields: Unique<'mem, &'mem NodeList>,
+    ) -> Unique<'mem, &'mem nodes::ColumnRef> {
         let mut node = self.make_node::<nodes::ColumnRef>();
         node.as_mut().set_fields(fields);
         node
@@ -64,9 +64,9 @@ impl<'a> MemoryToken<'a> {
     pub fn make_common_table_expr(
         self,
         ctename: &str,
-        aliascolnames: Unique<'a, &'a NodeList>,
-        ctequery: Unique<'a, Node<'a>>,
-    ) -> Unique<'a, &'a nodes::CommonTableExpr> {
+        aliascolnames: Unique<'mem, &'mem NodeList>,
+        ctequery: Unique<'mem, Node<'mem>>,
+    ) -> Unique<'mem, &'mem nodes::CommonTableExpr> {
         let mut cte = self.make_node::<nodes::CommonTableExpr>();
         cte.as_mut().set_ctename(Some(self.copy_string(ctename)));
         cte.as_mut().set_aliascolnames(aliascolnames);
@@ -74,7 +74,7 @@ impl<'a> MemoryToken<'a> {
         cte
     }
 
-    pub fn make_list<T: AsNodePtr>(self, elems: &[Unique<'a, T>]) -> Unique<'a, &'a T::List> {
+    pub fn make_list<T: AsNodePtr>(self, elems: &[Unique<'mem, T>]) -> Unique<'mem, &'mem T::List> {
         if elems.is_empty() {
             Unique(ptr::null_mut(), self.id, PhantomData)
         } else {
@@ -92,19 +92,22 @@ impl<'a> MemoryToken<'a> {
         }
     }
 
-    pub fn make_null(self) -> Unique<'a, &'a nodes::A_Const> {
+    pub fn make_null(self) -> Unique<'mem, &'mem nodes::A_Const> {
         let mut node = self.make_node::<nodes::A_Const>();
         node.as_mut().set_isnull(true);
         node
     }
 
-    pub fn make_param_ref(self, number: c_int) -> Unique<'a, &'a nodes::ParamRef> {
+    pub fn make_param_ref(self, number: c_int) -> Unique<'mem, &'mem nodes::ParamRef> {
         let mut node = self.make_node::<nodes::ParamRef>();
         node.as_mut().set_number(number);
         node
     }
 
-    pub fn make_raw_stmt(self, stmt: Unique<'a, Node<'a>>) -> Unique<'a, &'a nodes::RawStmt> {
+    pub fn make_raw_stmt(
+        self,
+        stmt: Unique<'mem, Node<'mem>>,
+    ) -> Unique<'mem, &'mem nodes::RawStmt> {
         let mut raw_stmt = self.make_node::<nodes::RawStmt>();
         raw_stmt.as_mut().set_stmt(stmt);
         raw_stmt
@@ -113,9 +116,9 @@ impl<'a> MemoryToken<'a> {
     pub fn make_res_target(
         self,
         name: Option<&str>,
-        indirection: Unique<'a, &'a NodeList>,
-        val: Unique<'a, Node<'a>>,
-    ) -> Unique<'a, &'a nodes::ResTarget> {
+        indirection: Unique<'mem, &'mem NodeList>,
+        val: Unique<'mem, Node<'mem>>,
+    ) -> Unique<'mem, &'mem nodes::ResTarget> {
         let mut res_target = self.make_node::<nodes::ResTarget>();
         res_target
             .as_mut()
@@ -127,9 +130,9 @@ impl<'a> MemoryToken<'a> {
 
     pub fn make_with_clause(
         self,
-        ctes: Unique<'a, &'a CastNodeList<nodes::CommonTableExpr>>,
+        ctes: Unique<'mem, &'mem CastNodeList<nodes::CommonTableExpr>>,
         recursive: bool,
-    ) -> Unique<'a, &'a nodes::WithClause> {
+    ) -> Unique<'mem, &'mem nodes::WithClause> {
         let mut with_clause = self.make_node::<nodes::WithClause>();
         with_clause.as_mut().set_ctes(ctes);
         with_clause.as_mut().set_recursive(recursive);
@@ -138,7 +141,7 @@ impl<'a> MemoryToken<'a> {
 
     /// Performs a deep copy of the given node onto this memory context,
     /// returning a unique pointer to it.
-    pub fn make_unique<T: AsNodePtr>(self, node: T) -> Unique<'a, T::AsRef<'a>> {
+    pub fn make_unique<T: AsNodePtr>(self, node: T) -> Unique<'mem, T::AsRef<'mem>> {
         let node_ptr = node.as_ptr();
         let mut err = ptr::null_mut();
         // SAFETY: This never panics
@@ -160,7 +163,7 @@ impl<'a> MemoryToken<'a> {
     /// The return value of this may not be a logically valid instance of a
     /// node, but it will be semantically valid and unsafe code must ensure it
     /// does not result in undefined behavior if it receives such an instance
-    pub fn make_node<T>(self) -> Unique<'a, &'a T>
+    pub fn make_node<T>(self) -> Unique<'mem, &'mem T>
     where
         T: ConstructableNode,
     {
@@ -172,7 +175,7 @@ impl<'a> MemoryToken<'a> {
     }
 
     /// Copy a string onto this memory context
-    pub fn copy_string(self, s: &str) -> PgStr<'a> {
+    pub fn copy_string(self, s: &str) -> PgStr<'mem> {
         // SAFETY: This never panics
         let ptr = unsafe {
             self.mem
@@ -182,25 +185,25 @@ impl<'a> MemoryToken<'a> {
     }
 
     /// Returns an empty list
-    pub fn empty(self) -> Unique<'a, &'a NodeList> {
+    pub fn empty(self) -> Unique<'mem, &'mem NodeList> {
         Unique(ptr::null_mut(), self.id, PhantomData)
     }
 
     /// Returns an empty typed list
-    pub fn cast_empty<T>(self) -> Unique<'a, &'a CastNodeList<T>> {
+    pub fn cast_empty<T>(self) -> Unique<'mem, &'mem CastNodeList<T>> {
         Unique(ptr::null_mut(), self.id, PhantomData)
     }
 
     /// Returns a NULL pointer to a node (a.k.a. None)
-    pub fn none(self) -> Unique<'a, Node<'a>> {
+    pub fn none(self) -> Unique<'mem, Node<'mem>> {
         Unique(ptr::null_mut(), self.id, PhantomData)
     }
 
     pub(crate) fn lappend<T: AsNodePtr>(
         self,
         list: *mut raw::List,
-        elem: Unique<'a, T>,
-    ) -> Unique<'a, &'a T::List> {
+        elem: Unique<'mem, T>,
+    ) -> Unique<'mem, &'mem T::List> {
         // SAFETY: This never panics
         let new_list = unsafe {
             self.mem
@@ -213,8 +216,8 @@ impl<'a> MemoryToken<'a> {
         self,
         list: *mut raw::List,
         idx: usize,
-        elem: Unique<'a, T>,
-    ) -> Unique<'a, &'a T::List> {
+        elem: Unique<'mem, T>,
+    ) -> Unique<'mem, &'mem T::List> {
         // SAFETY: This never panics
         let new_list = unsafe {
             self.mem
@@ -226,8 +229,8 @@ impl<'a> MemoryToken<'a> {
     pub(crate) fn list_concat<T>(
         self,
         list: *mut raw::List,
-        elems: Unique<'a, T>,
-    ) -> Unique<'a, T> {
+        elems: Unique<'mem, T>,
+    ) -> Unique<'mem, T> {
         // SAFETY: This never panics
         let new_list = unsafe {
             self.mem
@@ -240,9 +243,9 @@ impl<'a> MemoryToken<'a> {
 /// A uniquely owned pointer to a node. This is effectively `Box<T>`, but
 /// constrained to the lifetime of its memory context.
 #[repr(C)]
-pub struct Unique<'a, T>(*mut raw::Node, Id<'a>, PhantomData<T>);
+pub struct Unique<'mem, T>(*mut raw::Node, Id<'mem>, PhantomData<T>);
 
-impl<'a, T> Unique<'a, T> {
+impl<'mem, T> Unique<'mem, T> {
     /// Consume this to get the inner raw node pointer, erasing its lifetime.
     /// The returned pointer should either be stored along side the memory
     /// context, or assigned to the field of a node within the same memory
@@ -251,8 +254,8 @@ impl<'a, T> Unique<'a, T> {
         self.0
     }
 
-    /// Erase the concrete type, returning a unique [`Node<'a>`]
-    pub fn uncast(self) -> Unique<'a, Node<'a>> {
+    /// Erase the concrete type, returning a unique [`Node<'mem>`]
+    pub fn uncast(self) -> Unique<'mem, Node<'mem>> {
         Unique(self.0, self.1, PhantomData)
     }
 
@@ -264,12 +267,12 @@ impl<'a, T> Unique<'a, T> {
         unsafe { T::from_raw(self.0) }
     }
 
-    pub fn as_option(self) -> Unique<'a, Option<T>> {
+    pub fn as_option(self) -> Unique<'mem, Option<T>> {
         Unique(self.0, self.1, PhantomData)
     }
 }
 
-impl<'a, T: FromNodeMut<'a>> Unique<'a, T> {
+impl<'mem, T: FromNodeMut<'mem>> Unique<'mem, T> {
     /// Get a mutable reference to the inner node, preventing any assignments
     /// that would mix memory contexts. Panics if called on a null pointer
     ///
@@ -317,9 +320,9 @@ impl<'a, T: FromNodeMut<'a>> Unique<'a, T> {
     }
 }
 
-impl<'a, T> Deref for Unique<'a, &'a T>
+impl<'mem, T> Deref for Unique<'mem, &'mem T>
 where
-    &'a T: FromNodePtr,
+    &'mem T: FromNodePtr,
 {
     type Target = T;
 
@@ -328,7 +331,7 @@ where
     }
 }
 
-pub struct PgStr<'a>(*mut c_char, Id<'a>);
+pub struct PgStr<'mem>(*mut c_char, Id<'mem>);
 
 impl PgStr<'_> {
     pub(crate) fn into_ptr(self) -> *mut c_char {
@@ -361,7 +364,7 @@ impl PgStr<'_> {
 /// ```
 pub fn owned<F, T>(f: F) -> Owned<T>
 where
-    for<'a> F: FnOnce(MemoryToken<'a>) -> Unique<'a, &'a T>,
+    for<'mem> F: FnOnce(MemoryToken<'mem>) -> Unique<'mem, &'mem T>,
 {
     try_owned(|mem| Ok::<_, ()>(f(mem))).unwrap()
 }
@@ -369,7 +372,7 @@ where
 /// Identical to [`owned`], but for functions that return `Result`.
 pub fn try_owned<F, T, E>(f: F) -> Result<Owned<T>, E>
 where
-    for<'a> F: FnOnce(MemoryToken<'a>) -> Result<Unique<'a, &'a T>, E>,
+    for<'mem> F: FnOnce(MemoryToken<'mem>) -> Result<Unique<'mem, &'mem T>, E>,
 {
     let mem = MemoryContext::new(c"pg_raw_parse_owned_node");
     let node = {

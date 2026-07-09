@@ -4,27 +4,27 @@ use generativity::Id;
 use std::marker::PhantomData;
 use std::slice;
 
-pub struct NodeListMut<'a, 'b, T> {
-    pub(crate) id: Id<'a>,
+pub struct NodeListMut<'mem, 'mutref, T> {
+    pub(crate) id: Id<'mem>,
     /// We take `&mut Option<&mut>` because mutation functions return a new
     /// pointer that must be used instead of the original. The pointer may
     /// be null, so we need Option. Although the functions return a new
     /// pointer, they may modify the list in-place, so the inner most
     /// reference must be unique.
-    mut_ref: &'b mut Option<&'b mut T>,
+    mut_ref: &'mutref mut Option<&'mutref mut T>,
 }
 
-impl<'a, 'b, T> NodeListMut<'a, 'b, T> {
-    pub(crate) fn new(id: Id<'a>, mut_ref: &'b mut Option<&'b mut T>) -> Self {
+impl<'mem, 'mutref, T> NodeListMut<'mem, 'mutref, T> {
+    pub(crate) fn new(id: Id<'mem>, mut_ref: &'mutref mut Option<&'mutref mut T>) -> Self {
         Self { id, mut_ref }
     }
 }
 
-impl<'a, 'b, T: List> NodeListMut<'a, 'b, T> {
+impl<'mem, 'mutref, T: List> NodeListMut<'mem, 'mutref, T> {
     #[inline]
-    pub fn iter<'c>(&'c self) -> <&'c Self as IntoIterator>::IntoIter
+    pub fn iter<'a>(&'a self) -> <&'a Self as IntoIterator>::IntoIter
     where
-        &'c Self: IntoIterator,
+        &'a Self: IntoIterator,
     {
         self.into_iter()
     }
@@ -45,18 +45,18 @@ impl<'a, 'b, T: List> NodeListMut<'a, 'b, T> {
     }
 }
 
-impl<'a, 'b, T> NodeListMut<'a, 'b, T>
+impl<'mem, 'mutref, T> NodeListMut<'mem, 'mutref, T>
 where
-    for<'c> Option<&'b T>: AsNodePtr,
+    Option<&'mutref T>: AsNodePtr,
     T: List,
-    T::Elem<'a>: AsNodeRef<List = T>,
+    for<'a> T::Elem<'a>: AsNodeRef<List = T>,
 {
     pub fn get(&self, idx: usize) -> Option<T::Elem<'_>> {
         self.mut_ref.as_ref().and_then(|l| l.get(idx))
     }
 
     /// Assigns the given element to the specified index. Equivalent to `[]=`.
-    pub fn set(&mut self, idx: usize, elem: Unique<'a, T::Elem<'a>>) {
+    pub fn set(&mut self, idx: usize, elem: Unique<'mem, T::Elem<'_>>) {
         let slice = self
             .mut_ref
             .as_mut()
@@ -65,23 +65,23 @@ where
         slice[idx] = elem.into_ptr();
     }
 
-    pub fn push(&mut self, mem: MemoryToken<'a>, elem: Unique<'a, T::Elem<'a>>) {
+    pub fn push(&mut self, mem: MemoryToken<'mem>, elem: Unique<'mem, T::Elem<'_>>) {
         let new_ptr = mem.lappend(self.take_ptr(), elem);
         self.replace_ptr(new_ptr);
     }
 
-    pub fn insert(&mut self, mem: MemoryToken<'a>, idx: usize, elem: Unique<'a, T::Elem<'a>>) {
+    pub fn insert(&mut self, mem: MemoryToken<'mem>, idx: usize, elem: Unique<'mem, T::Elem<'_>>) {
         assert!(idx <= self.len());
         let new_ptr = mem.list_insert_nth(self.take_ptr(), idx, elem);
         self.replace_ptr(new_ptr)
     }
 
-    pub fn extend(&mut self, mem: MemoryToken<'a>, elems: Unique<'a, &'a T>) {
+    pub fn extend(&mut self, mem: MemoryToken<'mem>, elems: Unique<'mem, &'_ T>) {
         let new_ptr = mem.list_concat(self.take_ptr(), elems);
         self.replace_ptr(new_ptr)
     }
 
-    fn replace_ptr(&mut self, ptr: Unique<'a, &'a T>) {
+    fn replace_ptr(&mut self, ptr: Unique<'mem, &'_ T>) {
         let new_list = ptr.into_ptr().cast::<T>();
         // SAFETY: PG will always return a valid pointer or NULL
         *self.mut_ref = unsafe { new_list.as_mut() };
@@ -92,12 +92,12 @@ where
     }
 }
 
-impl<'a, 'b, 'c, T> IntoIterator for &'c NodeListMut<'a, 'b, T>
+impl<'mem, 'mutref, 'a, T> IntoIterator for &'a NodeListMut<'mem, 'mutref, T>
 where
-    &'c T: IntoIterator,
+    &'a T: IntoIterator,
     T: List,
 {
-    type IntoIter = <&'c T as IntoIterator>::IntoIter;
+    type IntoIter = <&'a T as IntoIterator>::IntoIter;
     type Item = <Self::IntoIter as Iterator>::Item;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -108,12 +108,12 @@ where
     }
 }
 
-impl<'a, 'b, T> IntoIterator for NodeListMut<'a, 'b, T>
+impl<'mem, 'mutref, T> IntoIterator for NodeListMut<'mem, 'mutref, T>
 where
     T: List,
-    NodeIterMut<'a, 'b, T::Elem<'b>>: Iterator,
+    NodeIterMut<'mem, 'mutref, T::Elem<'mutref>>: Iterator,
 {
-    type IntoIter = NodeIterMut<'a, 'b, T::Elem<'b>>;
+    type IntoIter = NodeIterMut<'mem, 'mutref, T::Elem<'mutref>>;
     type Item = <Self::IntoIter as Iterator>::Item;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -131,17 +131,17 @@ where
 }
 
 #[must_use = "iterators are lazy and do nothing unless consumed"]
-pub struct NodeIterMut<'a, 'b, T> {
-    id: Id<'a>,
-    iter: slice::IterMut<'b, *mut raw::Node>,
+pub struct NodeIterMut<'mem, 'mutref, T> {
+    id: Id<'mem>,
+    iter: slice::IterMut<'mutref, *mut raw::Node>,
     _marker: PhantomData<T>,
 }
 
-impl<'a, 'b, T> Iterator for NodeIterMut<'a, 'b, T>
+impl<'mem, 'mutref, T> Iterator for NodeIterMut<'mem, 'mutref, T>
 where
-    T: FromNodeMut<'a>,
+    T: FromNodeMut<'mem>,
 {
-    type Item = T::MutRef<'b>;
+    type Item = T::MutRef<'mutref>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next().map(|ptr| {

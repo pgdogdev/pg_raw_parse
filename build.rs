@@ -245,19 +245,19 @@ impl NodeField {
         }
     }
 
-    fn mut_accessor(&self, lt: syn::Lifetime) -> Option<syn::ImplItem> {
+    fn mut_accessor(&self, mem: &syn::Lifetime) -> Option<syn::ImplItem> {
         use NodeFieldType::*;
 
         let fname = &self.name;
         let func_name = syn::Ident::new(&format!("{fname}_mut"), fname.span());
-        let inner = &self.ty(&lt);
+        let inner = &self.ty(&mem);
         match &self.ty {
             // No reason to provide for these, user can just `&mut node.field`
             Private(_) | Primitive(_) => None,
 
             Node | CastNode(_) | List | CastList(_) => Some(parse_quote! {
                 #[inline]
-                pub fn #func_name(&mut self) -> <#inner as FromNodeMut<#lt>>::MutRef<'_> {
+                pub fn #func_name(&mut self) -> <#inner as FromNodeMut<#mem>>::MutRef<'_> {
                     // SAFETY: The pointer will always be valid or NULL.
                     // The lifetime won't outlive self
                     unsafe {
@@ -276,10 +276,10 @@ impl NodeField {
         }
     }
 
-    fn setter_method(&self, self_expr: syn::Expr, id_lt: syn::Lifetime) -> Option<syn::ImplItem> {
+    fn setter_method(&self, self_expr: syn::Expr, mem: &syn::Lifetime) -> Option<syn::ImplItem> {
         let fname = &self.name;
         let func_name = syn::Ident::new(&format!("set_{}", fname), fname.span());
-        let ty = self.setter_ty(&id_lt)?;
+        let ty = self.setter_ty(&mem)?;
         let set_expr = self.setter_expr();
         Some(parse_quote! {
             #[inline]
@@ -391,14 +391,14 @@ impl NodeFieldType {
         }
     }
 
-    fn constructor_ty(&self, lt: &syn::Lifetime) -> Option<syn::Type> {
-        let inner = self.ty(lt);
+    fn constructor_ty(&self, mem: &syn::Lifetime) -> Option<syn::Type> {
+        let inner = self.ty(mem);
         match self {
             Self::Private(_) => None,
             Self::Primitive(_) => Some(inner),
             Self::ConstVal => Some(parse_quote!(crate::raw::ValUnion)),
             Self::Node | Self::CastNode(_) | Self::List | Self::CastList(_) => {
-                Some(parse_quote!(Unique<#lt, #inner>))
+                Some(parse_quote!(Unique<#mem, #inner>))
             }
             // Strings get copied in constructors so we can ignore the input LT
             Self::CString => Some(parse_quote!(Option<&str>)),
@@ -625,13 +625,13 @@ fn generate_node_structs(
         });
 
         out_file.items.push(parse_quote! {
-            impl<'a> crate::FromNodeMut<'a> for &#sname {
-                type MutRef<'b> = #smut<'a, 'b>;
+            impl<'mem> crate::FromNodeMut<'mem> for &#sname {
+                type MutRef<'mutref> = #smut<'mem, 'mutref>;
 
-                unsafe fn from_ptr_mut<'b>(
-                    ptr: &'b mut *mut Node,
-                    id: Id<'a>,
-                ) -> Self::MutRef<'b> {
+                unsafe fn from_ptr_mut<'mutref>(
+                    ptr: &'mutref mut *mut Node,
+                    id: Id<'mem>,
+                ) -> Self::MutRef<'mutref> {
                     // SAFETY: Caller is responsible for making this safe
                     let mut_ref = unsafe { ptr.cast::<#sname>().as_mut() }
                         .expect("from_ptr_mut called on a NULL pointer");
@@ -668,29 +668,29 @@ fn generate_node_structs(
 
         out_file.items.push(parse_quote! {
             #[allow(non_camel_case_types)]
-            pub struct #smut<'a, 'b> {
-                pub(crate) id: Id<'a>,
-                mut_ref: &'b mut #sname,
+            pub struct #smut<'mem, 'mutref> {
+                pub(crate) id: Id<'mem>,
+                mut_ref: &'mutref mut #sname,
             }
         });
 
         let setters = s
             .fields
             .iter()
-            .filter_map(|f| f.setter_method(parse_quote!(self.mut_ref), parse_quote!('a)));
+            .filter_map(|f| f.setter_method(parse_quote!(self.mut_ref), &parse_quote!('mem)));
         let mut_accessors = s
             .fields
             .iter()
-            .filter_map(|f| f.mut_accessor(parse_quote!('a)));
+            .filter_map(|f| f.mut_accessor(&parse_quote!('mem)));
         out_file.items.push(parse_quote! {
-            impl<'a, 'b> #smut<'a, 'b> {
+            impl<'mem, 'mutref> #smut<'mem, 'mutref> {
                 #(#setters)*
                 #(#mut_accessors)*
             }
         });
 
         out_file.items.push(parse_quote! {
-            impl<'a, 'b> std::ops::Deref for #smut<'a, 'b> {
+            impl<'mem, 'mutref> std::ops::Deref for #smut<'mem, 'mutref> {
                 type Target = #sname;
 
                 fn deref(&self) -> &Self::Target {
@@ -700,8 +700,8 @@ fn generate_node_structs(
         });
 
         out_file.items.push(parse_quote! {
-            impl<'a, 'b> From<#smut<'a, 'b>> for crate::NodeMut<'a, 'b> {
-                fn from(node: #smut<'a, 'b>) -> Self {
+            impl<'mem, 'mutref> From<#smut<'mem, 'mutref>> for crate::NodeMut<'mem, 'mutref> {
+                fn from(node: #smut<'mem, 'mutref>) -> Self {
                     Self::#sname(node)
                 }
             }
@@ -789,22 +789,22 @@ fn generate_node_enum(
     });
 
     out_file.items.push(parse_quote! {
-        impl<'a> FromNodeMut<'a> for Node<'_> {
-            type MutRef<'b> = NodeMut<'a, 'b>;
+        impl<'mem> FromNodeMut<'mem> for Node<'_> {
+            type MutRef<'mutref> = NodeMut<'mem, 'mutref>;
 
-            unsafe fn from_ptr_mut<'b>(
-                ptr: &'b mut *mut raw::Node,
-                id: Id<'a>,
-            ) -> Self::MutRef<'b> {
+            unsafe fn from_ptr_mut<'mutref>(
+                ptr: &'mutref mut *mut raw::Node,
+                id: Id<'mem>,
+            ) -> Self::MutRef<'mutref> {
                 // SAFETY: Pointer is not null. Caller is responsible for making
                 // this safe.
                 unsafe {
                     match ptr.as_ref().map(|p| p.type_) {
                         None => NodeMut::None(id),
                         #(Some(nodes::#node_names::TAG) => {
-                            NodeMut::#node_names(<&'a nodes::#node_names>::from_ptr_mut(ptr, id))
+                            NodeMut::#node_names(<&'mem nodes::#node_names>::from_ptr_mut(ptr, id))
                         })*
-                        Some(raw::NodeTag_T_List) => NodeMut::NodeList(<&'a crate::list::NodeList>::from_ptr_mut(ptr, id)),
+                        Some(raw::NodeTag_T_List) => NodeMut::NodeList(<&'mem crate::list::NodeList>::from_ptr_mut(ptr, id)),
                         Some(_) => NodeMut::Invalid(NonNull::new(*ptr).unwrap(), id),
                     }
                 }
@@ -813,27 +813,27 @@ fn generate_node_enum(
     });
 
     let enum_variants = node_names.iter().map::<syn::Variant, _>(
-        |i| parse_quote!(#i(<&'a nodes::#i as FromNodeMut<'a>>::MutRef<'b>) = nodes::#i::TAG),
+        |i| parse_quote!(#i(<&'mem nodes::#i as FromNodeMut<'mem>>::MutRef<'mutref>) = nodes::#i::TAG),
     );
     out_file.items.push(parse_quote! {
         #[allow(non_camel_case_types)]
         #[repr(u32)]
-        pub enum NodeMut<'a, 'b> {
+        pub enum NodeMut<'mem, 'mutref> {
             /// A NULL pointer to a node
-            None(Id<'a>) = 0,
-            NodeList(<&'a crate::list::NodeList as FromNodeMut<'a>>::MutRef<'b>) = raw::NodeTag_T_List,
+            None(Id<'mem>) = 0,
+            NodeList(<&'mem crate::list::NodeList as FromNodeMut<'mem>>::MutRef<'mutref>) = raw::NodeTag_T_List,
             #(#enum_variants,)*
             /// A pointer to a node that wasn't part of a parse tree, or that
             /// pg_raw_parse doesn't know how to generate code for.
-            Invalid(NonNull<raw::Node>, Id<'a>),
+            Invalid(NonNull<raw::Node>, Id<'mem>),
         }
     });
 
     out_file.items.push(parse_quote! {
-        impl<'a, 'b> NodeMut<'a, 'b> {
+        impl<'mem, 'mutref> NodeMut<'mem, 'mutref> {
             /// Returns the lifetime brand for the memory context this points
             /// to
-            pub(crate) fn id(&self) -> Id<'a> {
+            pub(crate) fn id(&self) -> Id<'mem> {
                 match self {
                     Self::None(id) => *id,
                     Self::NodeList(list) => list.id,
@@ -889,7 +889,7 @@ fn generate_make_funcs(
         })
         .collect::<Vec<_>>();
 
-    let lt = parse_quote!('a);
+    let mem = parse_quote!('mem);
     let items = makefuncs.iter().map(|(node, makefunc)| -> syn::ImplItem {
         let node_name = &node.name;
         let raw_func_name = &makefunc.sig.ident;
@@ -941,13 +941,13 @@ fn generate_make_funcs(
 
         let fargs = arg_fields.iter().filter_map(|field| {
             let fname = &field.name;
-            let fty = field.constructor_ty(&lt)?;
+            let fty = field.constructor_ty(&mem)?;
             Some::<syn::FnArg>(parse_quote!(#fname: #fty))
         });
         let farg_exprs = arg_fields.iter().map(|field| field.as_raw_expr());
 
         parse_quote! {
-            pub fn #func_name(self, #(#fargs,)*) -> Unique<#lt, &#lt crate::nodes::#node_name> {
+            pub fn #func_name(self, #(#fargs,)*) -> Unique<#mem, &#mem crate::nodes::#node_name> {
                 // SAFETY: The given closure never panics. The function raw
                 // functions we call are only allocating and assigning fields.
                 // They have no error conditions, so we can never longjmp
@@ -964,7 +964,7 @@ fn generate_make_funcs(
     std::fs::write(
         out_dir.join("make_funcs_raw.rs"),
         prettyplease::unparse(&parse_quote! {
-            impl<#lt> MemoryToken<#lt> {
+            impl<#mem> MemoryToken<#mem> {
                 #(#items)*
             }
         }),

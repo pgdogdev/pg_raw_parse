@@ -63,22 +63,28 @@ impl<T: FromNodePtr> FromNodePtr for Option<T> {
     }
 }
 
-pub trait FromNodeMut<'a> {
-    type MutRef<'b>;
+pub trait FromNodeMut<'mem> {
+    type MutRef<'mutref>;
 
     /// # Safety
     ///
     /// The caller must provide a valid pointer that was allocated onto the
-    /// MemoryContext referenced by 'a. The pointer must be a valid pointer to
+    /// MemoryContext referenced by 'mem. The pointer must be a valid pointer to
     /// a node of type Self. Implementors of this function may not check the
     /// tag before casting the pointer
-    unsafe fn from_ptr_mut<'b>(ptr: &'b mut *mut raw::Node, id: Id<'a>) -> Self::MutRef<'b>;
+    unsafe fn from_ptr_mut<'mutref>(
+        ptr: &'mutref mut *mut raw::Node,
+        id: Id<'mem>,
+    ) -> Self::MutRef<'mutref>;
 }
 
-impl<'a, T: FromNodeMut<'a>> FromNodeMut<'a> for Option<T> {
-    type MutRef<'b> = Option<T::MutRef<'b>>;
+impl<'mem, T: FromNodeMut<'mem>> FromNodeMut<'mem> for Option<T> {
+    type MutRef<'mutref> = Option<T::MutRef<'mutref>>;
 
-    unsafe fn from_ptr_mut<'b>(ptr: &'b mut *mut raw::Node, id: Id<'a>) -> Self::MutRef<'b> {
+    unsafe fn from_ptr_mut<'mutref>(
+        ptr: &'mutref mut *mut raw::Node,
+        id: Id<'mem>,
+    ) -> Self::MutRef<'mutref> {
         if ptr.is_null() {
             None
         } else {
