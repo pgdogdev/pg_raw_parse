@@ -1,8 +1,9 @@
 use crate::{
-    AsNodePtr, AsNodeRef, ConstructableNode, FromNodeMut, FromNodePtr, list, list_mut, nodes, raw,
+    AsNodePtr, AsNodeRef, ConstructableNode, FromNodeMut, FromNodePtr, list, list_mut, make, nodes,
+    raw,
 };
 use generativity::Id;
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
 
 include!(concat!(env!("OUT_DIR"), "/node_enum_raw.rs"));
 
@@ -42,7 +43,7 @@ impl<'a, 'b> NodeMut<'a, 'b> {
     pub fn as_node_list(self) -> Option<list_mut::NodeListMut<'a, 'b, list::NodeList>> {
         match self {
             // Can't give a mut ref to empty lists yet
-            Self::None(_) => None,
+            Self::None(..) => None,
             Self::NodeList(l) => Some(l),
             _ => None,
         }

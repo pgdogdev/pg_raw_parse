@@ -255,7 +255,7 @@ impl<'mem, T> Unique<'mem, T> {
     }
 
     /// Erase the concrete type, returning a unique [`Node<'mem>`]
-    pub fn uncast(self) -> Unique<'mem, Node<'mem>> {
+    pub fn uncast<'a>(self) -> Unique<'mem, Node<'a>> {
         Unique(self.0, self.1, PhantomData)
     }
 

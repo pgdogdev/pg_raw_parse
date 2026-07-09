@@ -43,6 +43,13 @@ impl<'mem, 'mutref, T: List> NodeListMut<'mem, 'mutref, T> {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    #[inline]
+    pub fn replace(&mut self, ptr: Unique<'mem, &T>) {
+        let new_list = ptr.into_ptr().cast::<T>();
+        // SAFETY: PG will always return a valid pointer or NULL
+        *self.mut_ref = unsafe { new_list.as_mut() };
+    }
 }
 
 impl<'mem, 'mutref, T> NodeListMut<'mem, 'mutref, T>
@@ -67,28 +74,26 @@ where
 
     pub fn push(&mut self, mem: MemoryToken<'mem>, elem: Unique<'mem, T::Elem<'_>>) {
         let new_ptr = mem.lappend(self.take_ptr(), elem);
-        self.replace_ptr(new_ptr);
+        self.replace(new_ptr);
     }
 
     pub fn insert(&mut self, mem: MemoryToken<'mem>, idx: usize, elem: Unique<'mem, T::Elem<'_>>) {
         assert!(idx <= self.len());
         let new_ptr = mem.list_insert_nth(self.take_ptr(), idx, elem);
-        self.replace_ptr(new_ptr)
+        self.replace(new_ptr)
     }
 
-    pub fn extend(&mut self, mem: MemoryToken<'mem>, elems: Unique<'mem, &'_ T>) {
+    pub fn extend(&mut self, mem: MemoryToken<'mem>, elems: Unique<'mem, &T>) {
         let new_ptr = mem.list_concat(self.take_ptr(), elems);
-        self.replace_ptr(new_ptr)
-    }
-
-    fn replace_ptr(&mut self, ptr: Unique<'mem, &'_ T>) {
-        let new_list = ptr.into_ptr().cast::<T>();
-        // SAFETY: PG will always return a valid pointer or NULL
-        *self.mut_ref = unsafe { new_list.as_mut() };
+        self.replace(new_ptr)
     }
 
     pub(crate) fn take_ptr(&mut self) -> *mut raw::List {
         self.mut_ref.take().map(|p| &*p).as_ptr().cast()
+    }
+
+    pub(crate) fn into_assignment(self) -> *mut *mut raw::Node {
+        std::ptr::from_mut(self.mut_ref).cast()
     }
 }
 

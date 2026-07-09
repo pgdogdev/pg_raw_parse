@@ -74,6 +74,7 @@ fn main() {
     let node_structs =
         generate_node_structs(&node_bindings, &out_dir.join("nodes_raw.rs")).unwrap();
     generate_node_enum(&node_structs, &out_dir.join("node_enum_raw.rs")).unwrap();
+    generate_transformer(&node_structs, &out_dir.join("transform_raw.rs")).unwrap();
 
     let mut makefunc_bindings = String::new();
     bindgen
@@ -178,6 +179,17 @@ impl NodeStruct {
         let tag_name = syn::Ident::new(&format!("NodeTag_T_{}", &self.name), self.name.span());
         parse_quote!(raw::#tag_name)
     }
+
+    fn mut_ref_name(&self) -> syn::Ident {
+        syn::Ident::new(&format!("{}Mut", &self.name), self.name.span())
+    }
+
+    fn transform_function_name(&self) -> syn::Ident {
+        syn::Ident::new(
+            &format!("transform_{}", self.name.to_string().to_case(Case::Snake)),
+            self.name.span(),
+        )
+    }
 }
 
 struct NodeField {
@@ -245,7 +257,7 @@ impl NodeField {
         }
     }
 
-    fn mut_accessor(&self, mem: &syn::Lifetime) -> Option<syn::ImplItem> {
+    fn mut_accessor(&self, mem: &syn::Lifetime) -> Option<syn::ItemFn> {
         use NodeFieldType::*;
 
         let fname = &self.name;
@@ -354,6 +366,41 @@ impl NodeField {
             _ => self.as_raw_expr(),
         }
     }
+
+    fn transform_stmt(
+        &self,
+        lt: &syn::Lifetime,
+        transformer: &syn::Expr,
+        node: &syn::Expr,
+    ) -> Option<syn::Stmt> {
+        use NodeFieldType::*;
+
+        let mut_accessor = self.mut_accessor(lt)?.sig.ident;
+        match &self.ty {
+            Node => {
+                Some(parse_quote!(#transformer.transform_node(Assignable(#node.#mut_accessor()));))
+            }
+            CastNode(inner) => {
+                let trans_fname =
+                    syn::Ident::new(&format!("transform_{}", snake_case(inner)), inner.span());
+                Some(parse_quote! {
+                    if let Some(node) = #node.#mut_accessor() {
+                        #transformer.#trans_fname(node);
+                    }
+                })
+            }
+            List => Some(parse_quote!(#transformer.transform_list(#node.#mut_accessor());)),
+            CastList(inner) => {
+                let trans_fname = syn::Ident::new(
+                    &format!("transform_{}_list", snake_case(inner)),
+                    inner.span(),
+                );
+                Some(parse_quote!(#transformer.#trans_fname(#node.#mut_accessor());))
+            }
+
+            Private(_) | Primitive(_) | ConstVal | CString => None,
+        }
+    }
 }
 
 enum NodeFieldType {
@@ -361,7 +408,7 @@ enum NodeFieldType {
     Node,
     CastNode(syn::Ident),
     List,
-    CastList(syn::Type),
+    CastList(syn::Ident),
     CString,
     ConstVal,
     Primitive(syn::Type),
@@ -527,7 +574,7 @@ fn generate_node_structs(
     for s in &node_structs {
         let sattrs = &s.attrs;
         let sname = &s.name;
-        let smut = syn::Ident::new(&format!("{sname}Mut"), sname.span());
+        let smut = s.mut_ref_name();
 
         for f in &s.fields {
             if let NodeFieldType::CastNode(t) = &f.ty
@@ -632,9 +679,17 @@ fn generate_node_structs(
                     ptr: &'mutref mut *mut Node,
                     id: Id<'mem>,
                 ) -> Self::MutRef<'mutref> {
+                    if ptr.is_null() {
+                        panic!("from_ptr_mut called on a NULL pointer")
+                    }
+
                     // SAFETY: Caller is responsible for making this safe
-                    let mut_ref = unsafe { ptr.cast::<#sname>().as_mut() }
-                        .expect("from_ptr_mut called on a NULL pointer");
+                    let mut_ref = unsafe {
+                        std::ptr::from_mut(ptr)
+                            .cast::<&mut #sname>()
+                            .as_mut()
+                            .unwrap()
+                    };
                     #smut { id, mut_ref }
                 }
             }
@@ -670,7 +725,7 @@ fn generate_node_structs(
             #[allow(non_camel_case_types)]
             pub struct #smut<'mem, 'mutref> {
                 pub(crate) id: Id<'mem>,
-                mut_ref: &'mutref mut #sname,
+                mut_ref: &'mutref mut &'mutref mut #sname,
             }
         });
 
@@ -686,6 +741,18 @@ fn generate_node_structs(
             impl<'mem, 'mutref> #smut<'mem, 'mutref> {
                 #(#setters)*
                 #(#mut_accessors)*
+
+                pub fn replace(self, node: Unique<'mem, &#sname>) {
+                    let ptr = node.into_ptr().cast::<#sname>();
+                    // SAFETY: ptr is always a valid pointer or NULL
+                    let new = unsafe { ptr.as_mut() }
+                        .expect(concat!("Cannot replace a ", stringify!(#sname), " with NULL"));
+                    *self.mut_ref = new;
+                }
+
+                pub(crate) fn into_assignment(self) -> *mut *mut raw::Node {
+                    std::ptr::from_mut(self.mut_ref).cast()
+                }
             }
         });
 
@@ -800,12 +867,12 @@ fn generate_node_enum(
                 // this safe.
                 unsafe {
                     match ptr.as_ref().map(|p| p.type_) {
-                        None => NodeMut::None(id),
+                        None => NodeMut::None(ptr, id),
                         #(Some(nodes::#node_names::TAG) => {
                             NodeMut::#node_names(<&'mem nodes::#node_names>::from_ptr_mut(ptr, id))
                         })*
                         Some(raw::NodeTag_T_List) => NodeMut::NodeList(<&'mem crate::list::NodeList>::from_ptr_mut(ptr, id)),
-                        Some(_) => NodeMut::Invalid(NonNull::new(*ptr).unwrap(), id),
+                        Some(_) => NodeMut::Invalid(ptr, id),
                     }
                 }
             }
@@ -820,12 +887,12 @@ fn generate_node_enum(
         #[repr(u32)]
         pub enum NodeMut<'mem, 'mutref> {
             /// A NULL pointer to a node
-            None(Id<'mem>) = 0,
+            None(&'mutref mut *mut raw::Node, Id<'mem>) = 0,
             NodeList(<&'mem crate::list::NodeList as FromNodeMut<'mem>>::MutRef<'mutref>) = raw::NodeTag_T_List,
             #(#enum_variants,)*
             /// A pointer to a node that wasn't part of a parse tree, or that
             /// pg_raw_parse doesn't know how to generate code for.
-            Invalid(NonNull<raw::Node>, Id<'mem>),
+            Invalid(&'mutref mut *mut raw::Node, Id<'mem>),
         }
     });
 
@@ -835,7 +902,7 @@ fn generate_node_enum(
             /// to
             pub(crate) fn id(&self) -> Id<'mem> {
                 match self {
-                    Self::None(id) => *id,
+                    Self::None(_, id) => *id,
                     Self::NodeList(list) => list.id,
                     #(Self::#node_names(n) => n.id,)*
                     Self::Invalid(_, id) => *id,
@@ -845,11 +912,28 @@ fn generate_node_enum(
             /// Get the raw pointer representation of this node
             pub(crate) fn into_ptr(self) -> *mut raw::Node {
                 match self {
-                    Self::None(_) => std::ptr::null_mut(),
+                    Self::None(..) => std::ptr::null_mut(),
                     Self::NodeList(mut list) => list.take_ptr().cast(),
                     #(Self::#node_names(p) => p.as_ptr(),)*
-                    Self::Invalid(p, _) => p.as_ptr(),
+                    Self::Invalid(p, _) => *p,
                 }
+            }
+
+            /// Assign a node in-place
+            ///
+            /// # Safety
+            ///
+            /// This NodeMut must not have been constructed from a node that
+            /// is expected to be of a specific type
+            pub(crate) unsafe fn replace(self, node: make::Unique<'mem, Node<'_>>) {
+                let ref_mut = match self {
+                    Self::None(ref_mut, _) => ptr::from_mut(ref_mut).cast(),
+                    Self::NodeList(list) => list.into_assignment(),
+                    #(Self::#node_names(p) => p.into_assignment(),)*
+                    Self::Invalid(ref_mut, _) => ptr::from_mut(ref_mut),
+                };
+                // SAFETY: Caller is responsible for making this safe
+                unsafe { *ref_mut = node.into_ptr() };
             }
         }
     });
@@ -973,6 +1057,128 @@ fn generate_make_funcs(
         .into_iter()
         .map(|(_, f)| f.sig.ident.to_string())
         .collect())
+}
+
+fn generate_transformer(
+    node_structs: &[NodeStruct],
+    out_path: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut out_file = syn::File {
+        shebang: None,
+        attrs: Vec::new(),
+        items: Vec::new(),
+    };
+
+    let mut transform_trait: syn::ItemTrait = parse_quote! {
+        pub trait Transform<'mem> {
+            fn transform_node<'mutref>(&mut self, node: Assignable<'mem, 'mutref>) {
+                transform_node(node, self);
+            }
+
+            fn transform_list<'mutref>(&mut self, list: NodeListMut<'mem, 'mutref, NodeList>) {
+                transform_list(list, self);
+            }
+        }
+    };
+
+    let node_names = node_structs.iter().map(|s| &s.name);
+    let trans_fnames = node_structs.iter().map(|s| s.transform_function_name());
+    out_file.items.push(parse_quote! {
+        pub fn transform_node<'mem, 'mutref, T>(
+            node: Assignable<'mem, 'mutref>,
+            transformer: &mut T,
+        )
+        where
+            T: Transform<'mem> + ?Sized,
+        {
+            match node.0 {
+                NodeMut::None(..) | NodeMut::Invalid(..) => {},
+                NodeMut::NodeList(list) => transformer.transform_list(list),
+                #(NodeMut::#node_names(node) => transformer.#trans_fnames(node),)*
+            }
+        }
+    });
+
+    out_file.items.push(parse_quote! {
+        pub fn transform_list<'mem, 'mutref, T>(
+            list: NodeListMut<'mem, 'mutref, NodeList>,
+            transformer: &mut T,
+        )
+        where
+            T: Transform<'mem> + ?Sized,
+        {
+            for node in list {
+                transformer.transform_node(Assignable(node));
+            }
+        }
+    });
+
+    for s in node_structs {
+        let trans_fname = s.transform_function_name();
+        let sname = &s.name;
+        let smut = s.mut_ref_name();
+
+        // i.e. Transform::transform_string
+        transform_trait.items.push(parse_quote! {
+            fn #trans_fname<'mutref>(&mut self, node: nodes::#smut<'mem, 'mutref>) {
+                #trans_fname(node, self)
+            }
+        });
+
+        let list_trans_fname = syn::Ident::new(&format!("{trans_fname}_list"), trans_fname.span());
+        // i.e. Transform::transform_string_list
+        transform_trait.items.push(parse_quote! {
+            fn #list_trans_fname<'mutref>(
+                &mut self,
+                node: NodeListMut<'mem, 'mutref, CastNodeList<nodes::#sname>>,
+            ) {
+                #list_trans_fname(node, self)
+            }
+        });
+
+        // i.e. transform::transform_string_list
+        out_file.items.push(parse_quote! {
+            fn #list_trans_fname<'mem, 'mutref, T>(
+                list: NodeListMut<'mem, 'mutref, CastNodeList<nodes::#sname>>,
+                transformer: &mut T,
+            )
+            where
+                T: Transform<'mem> + ?Sized,
+            {
+                for node in list {
+                    transformer.#trans_fname(node);
+                }
+            }
+        });
+
+        let transform_stmts = s.fields.iter().filter_map(|f| {
+            f.transform_stmt(
+                &parse_quote!('mem),
+                &parse_quote!(transformer),
+                &parse_quote!(node),
+            )
+        });
+        // i.e. transform::transform_string
+        out_file.items.push(parse_quote! {
+            pub fn #trans_fname<'mem, 'mutref, T>(
+                // These arguments will be unused for leaf nodes
+                #[allow(unused)]
+                mut node: nodes::#smut<'mem, 'mutref>,
+                #[allow(unused)]
+                transformer: &mut T,
+            )
+            where
+                T: Transform<'mem> + ?Sized,
+            {
+                #(#transform_stmts)*
+            }
+        });
+    }
+
+    out_file.items.push(transform_trait.into());
+
+    std::fs::write(out_path, prettyplease::unparse(&out_file))?;
+    Ok(())
 }
 
 fn is_flexible_array_ty(ty: &syn::Type) -> bool {
@@ -1137,7 +1343,7 @@ fn determine_list_field_ty(field: &syn::Field, comment_regex: &Regex) -> NodeFie
         // comment isn't lying, cast the list to NodeType
         let type_name = &captures[1];
         let ident = syn::Ident::new(type_name, field.ty.span());
-        NodeFieldType::CastList(parse_quote!(#ident))
+        NodeFieldType::CastList(ident)
     } else {
         // Polymorphic list or list without adequate documentation
         NodeFieldType::List
