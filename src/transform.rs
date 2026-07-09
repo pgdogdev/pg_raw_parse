@@ -122,31 +122,30 @@ fn transform_arbitrary_nodes() {
     let replaced = make::owned(|mem| {
         let mut copy = mem.make_unique(stmt);
         let mut id = 0;
-        transform_raw_stmt(
-            copy.as_mut(),
-            &mut TransformClosure::new(|node| match &*node {
-                NodeMut::FuncCall(f)
-                    if f.funcname()
-                        .iter()
-                        .filter_map(Node::as_str)
-                        .eq(["unique_id"]) =>
-                {
-                    node.replace(mem.make_a_const(ConstValue::Integer(id)).uncast());
-                    id += 1;
-                    None
-                }
-                NodeMut::A_Expr(expr)
-                    if expr.kind == A_Expr_Kind::AEXPR_OP
-                        && expr.name().iter().filter_map(Node::as_str).eq(["="])
-                        && let Node::ColumnRef(c) = expr.lexpr()
-                        && c.fields().iter().filter_map(Node::as_str).eq(["id"]) =>
-                {
-                    node.replace(mem.make_a_const(ConstValue::Boolean(true)).uncast());
-                    None
-                }
-                _ => Some(node),
-            }),
-        );
+        TransformClosure::new(|node| match &*node {
+            NodeMut::FuncCall(f)
+                if f.funcname()
+                    .iter()
+                    .filter_map(Node::as_str)
+                    .eq(["unique_id"]) =>
+            {
+                node.replace(mem.make_a_const(ConstValue::Integer(id)).uncast());
+                id += 1;
+                None
+            }
+            NodeMut::A_Expr(expr)
+                if expr.kind == A_Expr_Kind::AEXPR_OP
+                    && expr.name().iter().filter_map(Node::as_str).eq(["="])
+                    && let Node::ColumnRef(c) = expr.lexpr()
+                    && c.fields().iter().filter_map(Node::as_str).eq(["id"]) =>
+            {
+                node.replace(mem.make_a_const(ConstValue::Boolean(true)).uncast());
+                None
+            }
+            _ => Some(node),
+        })
+        .transform_raw_stmt(copy.as_mut());
+
         copy
     });
 
