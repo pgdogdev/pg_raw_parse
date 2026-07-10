@@ -42,7 +42,7 @@ impl<'a> ConstValue<'a> {
         }
     }
 
-    pub(crate) fn as_raw<'mem>(&self, mem: MemoryToken<'mem>) -> ValUnion {
+    pub(crate) fn as_raw(&self, mem: MemoryToken<'_>) -> ValUnion {
         match self {
             Self::Integer(i) => ValUnion {
                 ival: ManuallyDrop::new(nodes::Integer {
