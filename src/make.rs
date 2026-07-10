@@ -45,7 +45,7 @@ pub struct MemoryToken<'mem> {
 }
 
 impl<'mem> MemoryToken<'mem> {
-    pub fn make_a_const(self, val: ConstValue<'mem>) -> Unique<'mem, &'mem nodes::A_Const> {
+    pub fn make_a_const(self, val: ConstValue<'_>) -> Unique<'mem, &'mem nodes::A_Const> {
         let mut node = self.make_node::<nodes::A_Const>();
         node.as_mut().set_isnull(false);
         node.as_mut().set_val(val.as_raw(self));
@@ -54,7 +54,7 @@ impl<'mem> MemoryToken<'mem> {
 
     pub fn make_column_ref(
         self,
-        fields: Unique<'mem, &'mem NodeList>,
+        fields: Unique<'mem, &NodeList>,
     ) -> Unique<'mem, &'mem nodes::ColumnRef> {
         let mut node = self.make_node::<nodes::ColumnRef>();
         node.as_mut().set_fields(fields);
@@ -64,8 +64,8 @@ impl<'mem> MemoryToken<'mem> {
     pub fn make_common_table_expr(
         self,
         ctename: &str,
-        aliascolnames: Unique<'mem, &'mem NodeList>,
-        ctequery: Unique<'mem, Node<'mem>>,
+        aliascolnames: Unique<'mem, &NodeList>,
+        ctequery: Unique<'mem, Node<'_>>,
     ) -> Unique<'mem, &'mem nodes::CommonTableExpr> {
         let mut cte = self.make_node::<nodes::CommonTableExpr>();
         cte.as_mut().set_ctename(Some(self.copy_string(ctename)));
@@ -104,10 +104,7 @@ impl<'mem> MemoryToken<'mem> {
         node
     }
 
-    pub fn make_raw_stmt(
-        self,
-        stmt: Unique<'mem, Node<'mem>>,
-    ) -> Unique<'mem, &'mem nodes::RawStmt> {
+    pub fn make_raw_stmt(self, stmt: Unique<'mem, Node<'_>>) -> Unique<'mem, &'mem nodes::RawStmt> {
         let mut raw_stmt = self.make_node::<nodes::RawStmt>();
         raw_stmt.as_mut().set_stmt(stmt);
         raw_stmt
@@ -116,8 +113,8 @@ impl<'mem> MemoryToken<'mem> {
     pub fn make_res_target(
         self,
         name: Option<&str>,
-        indirection: Unique<'mem, &'mem NodeList>,
-        val: Unique<'mem, Node<'mem>>,
+        indirection: Unique<'mem, &NodeList>,
+        val: Unique<'mem, Node<'_>>,
     ) -> Unique<'mem, &'mem nodes::ResTarget> {
         let mut res_target = self.make_node::<nodes::ResTarget>();
         res_target
@@ -130,7 +127,7 @@ impl<'mem> MemoryToken<'mem> {
 
     pub fn make_with_clause(
         self,
-        ctes: Unique<'mem, &'mem CastNodeList<nodes::CommonTableExpr>>,
+        ctes: Unique<'mem, &CastNodeList<nodes::CommonTableExpr>>,
         recursive: bool,
     ) -> Unique<'mem, &'mem nodes::WithClause> {
         let mut with_clause = self.make_node::<nodes::WithClause>();
