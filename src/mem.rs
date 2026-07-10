@@ -1,5 +1,6 @@
 use crate::raw;
 use std::ffi::CStr;
+use std::ptr;
 
 pub(crate) struct MemoryContext(raw::MemoryContext);
 
@@ -11,10 +12,11 @@ impl MemoryContext {
         }
 
         // SAFETY: "Names must be constant strings", fulfilled by name being
-        // `&'static`.
+        // `&'static`. The parent being passed is `NULL`, which is required
+        // for this to be `Send` and `Sync`
         let ctx = unsafe {
             raw::AllocSetContextCreateInternal(
-                raw::get_top_memory_context(),
+                ptr::null_mut(),
                 name.as_ptr(),
                 raw::ALLOCSET_DEFAULT_MINSIZE as raw::Size,
                 raw::ALLOCSET_DEFAULT_INITSIZE as raw::Size,
@@ -43,6 +45,13 @@ impl MemoryContext {
         result
     }
 }
+
+// SAFETY: This will never have any parents, so we don't need to worry about
+// another thread exiting and its top context freeing us by thinking we're a
+// child
+unsafe impl Send for MemoryContext {}
+// SAFETY: We *never* create memory context children
+unsafe impl Sync for MemoryContext {}
 
 impl Drop for MemoryContext {
     fn drop(&mut self) {
