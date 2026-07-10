@@ -89,7 +89,7 @@ where
         self.replace(new_ptr)
     }
 
-    pub(crate) fn take_ptr(&mut self) -> *mut raw::List {
+    fn take_ptr(&mut self) -> *mut raw::List {
         self.mut_ref.take().map(|p| &*p).as_ptr().cast()
     }
 

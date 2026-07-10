@@ -919,7 +919,7 @@ fn generate_node_enum(
             pub(crate) fn into_ptr(self) -> *mut raw::Node {
                 match self {
                     Self::None(..) => std::ptr::null_mut(),
-                    Self::NodeList(mut list) => list.take_ptr().cast(),
+                    Self::NodeList(list) => list.as_ptr(),
                     #(Self::#node_names(p) => p.as_ptr(),)*
                     Self::Invalid(p, _) => *p,
                 }

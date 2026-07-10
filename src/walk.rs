@@ -332,3 +332,16 @@ fn walk_mutable_tree() {
         "WITH lol AS (INSERT INTO users VALUES (foo.foobar(2))) SELECT foo.foofoo(1) FROM users WHERE id = foo.foobaz(3)"
     );
 }
+
+#[test]
+fn walking_list_doesnt_drain_list() {
+    crate::make::owned(|mem| {
+        let mut list = mem.make_list(&[
+            mem.make_string(Some("1")).uncast(),
+            mem.make_string(Some("2")).uncast(),
+        ]);
+        walk_mut(NodeMut::NodeList(list.as_mut()), |_| {});
+        assert_eq!(2, list.len());
+        list
+    });
+}
