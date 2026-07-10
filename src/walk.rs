@@ -153,7 +153,7 @@ where
         // SAFETY: If we had a valid node come in, all its children should
         // also be valid.
         let mut p = node.as_ptr();
-        let mut node = unsafe { Node::from_ptr_mut(&mut p, id) };
+        let mut node = unsafe { Node::from_raw_mut(&mut p, id) };
         cb(&mut node)
     })
 }

@@ -313,7 +313,7 @@ impl<'mem, T: FromNodeMut<'mem>> Unique<'mem, T> {
     /// ```
     pub fn as_mut(&mut self) -> T::MutRef<'_> {
         // SAFETY: This was always constructed with a valid pointer
-        unsafe { T::from_ptr_mut(&mut self.0, self.1) }
+        unsafe { T::from_raw_mut(&mut self.0, self.1) }
     }
 }
 
