@@ -125,6 +125,19 @@ impl<'mem> MemoryToken<'mem> {
         Unique(res_target.into_ptr(), self.id, PhantomData)
     }
 
+    pub fn make_type_cast(
+        self,
+        arg: Unique<'mem, Node<'_>>,
+        names: Unique<'mem, &CastNodeList<nodes::String>>,
+    ) -> Unique<'mem, &'mem nodes::TypeCast> {
+        let mut type_cast = self.make_node::<nodes::TypeCast>();
+        type_cast.as_mut().set_arg(arg);
+        let mut type_name = self.make_node::<nodes::TypeName>();
+        type_name.as_mut().set_names(names);
+        type_cast.as_mut().set_type_name(type_name.as_option());
+        type_cast
+    }
+
     pub fn make_with_clause(
         self,
         ctes: Unique<'mem, &CastNodeList<nodes::CommonTableExpr>>,
