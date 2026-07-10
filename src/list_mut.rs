@@ -108,7 +108,7 @@ where
         self.mut_ref
             .as_ref()
             .map(|r| &**r)
-            .unwrap_or_else(|| T::EMPTY)
+            .unwrap_or(T::EMPTY)
     }
 }
 
