@@ -439,7 +439,7 @@ impl NodeFieldType {
     }
 
     fn constructor_ty(&self, mem: &syn::Lifetime) -> Option<syn::Type> {
-        let inner = self.ty(mem);
+        let inner = self.ty(&parse_quote!('_));
         match self {
             Self::Private(_) => None,
             Self::Primitive(_) => Some(inner),
