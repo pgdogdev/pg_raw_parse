@@ -105,10 +105,7 @@ where
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        self.mut_ref
-            .as_ref()
-            .map(|r| &**r)
-            .unwrap_or(T::EMPTY)
+        self.mut_ref.as_ref().map(|r| &**r).unwrap_or(T::EMPTY)
     }
 }
 
