@@ -898,6 +898,16 @@ fn generate_node_enum(
 
     out_file.items.push(parse_quote! {
         impl<'mem, 'mutref> NodeMut<'mem, 'mutref> {
+            pub fn as_ref(&self) -> Node<'_> {
+                match self {
+                    Self::None(..) => Node::None,
+                    Self::NodeList(list) => Node::NodeList(&*list),
+                    #(Self::#node_names(n) => Node::#node_names(&*n),)*
+                    // SAFETY: This was always constructed with a valid pointer
+                    Self::Invalid(ptr, _) => Node::Invalid(unsafe { (*ptr).as_ref() }.unwrap())
+                }
+            }
+
             /// Returns the lifetime brand for the memory context this points
             /// to
             pub(crate) fn id(&self) -> Id<'mem> {

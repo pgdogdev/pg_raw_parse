@@ -2,6 +2,7 @@ use crate::make::{MemoryToken, Unique};
 use crate::{AsNodePtr, AsNodeRef, FromNodeMut, List, raw};
 use generativity::Id;
 use std::marker::PhantomData;
+use std::ops::Deref;
 use std::slice;
 
 pub struct NodeListMut<'mem, 'mutref, T> {
@@ -94,6 +95,20 @@ where
 
     pub(crate) fn into_assignment(self) -> *mut *mut raw::Node {
         std::ptr::from_mut(self.mut_ref).cast()
+    }
+}
+
+impl<'mem, 'mutref, T> Deref for NodeListMut<'mem, 'mutref, T>
+where
+    T: List,
+{
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.mut_ref
+            .as_ref()
+            .map(|r| &**r)
+            .unwrap_or(T::EMPTY)
     }
 }
 
