@@ -99,7 +99,7 @@ where
 /// type, or fields of a known type, as replacing those with a node of a
 /// different type will result in undefined behavior. To be able to transform
 /// nodes of a specific, known type, implement [`Transform`] directly, or use
-/// [`walk::walk_mut`].
+/// [`walk_mut`](crate::walk::walk_mut).
 pub fn transform<'mem, F>(node: &mut Unique<'mem, Node<'_>>, f: F)
 where
     F: for<'mutref> FnMut(Assignable<'mem, 'mutref>) -> Option<Assignable<'mem, 'mutref>>,
