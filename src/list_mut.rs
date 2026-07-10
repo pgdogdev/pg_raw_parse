@@ -166,7 +166,7 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next().map(|ptr| {
             // SAFETY: Pointer is always valid or NULL
-            unsafe { T::from_ptr_mut(ptr, self.id) }
+            unsafe { T::from_raw_mut(ptr, self.id) }
         })
     }
 }

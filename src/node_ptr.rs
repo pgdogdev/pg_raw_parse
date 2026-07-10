@@ -68,11 +68,26 @@ pub trait FromNodeMut<'mem> {
 
     /// # Safety
     ///
-    /// The caller must provide a valid pointer that was allocated onto the
-    /// MemoryContext referenced by 'mem. The pointer must be a valid pointer to
-    /// a node of type Self. Implementors of this function may not check the
-    /// tag before casting the pointer
+    /// The caller must provide a valid node pointer that was allocated onto the
+    /// MemoryContext referenced by 'mem, or NULL.
+    unsafe fn from_raw_mut<'mutref>(
+        ptr: &'mutref mut *mut raw::Node,
+        id: Id<'mem>,
+    ) -> Self::MutRef<'mutref> {
+        // SAFETY: Caller is responsible for making this safe
+        unsafe {
+            let tag = ptr.as_ref().map(|n| n.type_);
+            Self::from_ptr_mut(tag, ptr, id)
+        }
+    }
+
+    /// # Safety
+    ///
+    /// In addition to all the invariants specified by [`from_raw_mut`], the
+    /// tag must always be value of `(**ptr).type_`. It must always be present,
+    /// unless the pointer is NULL.
     unsafe fn from_ptr_mut<'mutref>(
+        tag: Option<raw::NodeTag>,
         ptr: &'mutref mut *mut raw::Node,
         id: Id<'mem>,
     ) -> Self::MutRef<'mutref>;
@@ -82,6 +97,7 @@ impl<'mem, T: FromNodeMut<'mem>> FromNodeMut<'mem> for Option<T> {
     type MutRef<'mutref> = Option<T::MutRef<'mutref>>;
 
     unsafe fn from_ptr_mut<'mutref>(
+        tag: Option<raw::NodeTag>,
         ptr: &'mutref mut *mut raw::Node,
         id: Id<'mem>,
     ) -> Self::MutRef<'mutref> {
@@ -89,13 +105,24 @@ impl<'mem, T: FromNodeMut<'mem>> FromNodeMut<'mem> for Option<T> {
             None
         } else {
             // SAFETY: Caller is responsible for making this safe
-            Some(unsafe { T::from_ptr_mut(ptr, id) })
+            Some(unsafe { T::from_ptr_mut(tag, ptr, id) })
         }
     }
 }
 
 pub trait ConstructableNode: Sized {
     const TAG: NodeTag;
+
+    fn check_tag(tag: NodeTag) {
+        if tag != Self::TAG {
+            panic!(
+                "Expected {}, got tag {}",
+                std::any::type_name::<Self>(),
+                // FIXME: Would be nice if we could convert tag -> type name
+                tag
+            );
+        }
+    }
 }
 
 pub trait List: 'static {

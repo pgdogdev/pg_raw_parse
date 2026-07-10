@@ -273,7 +273,7 @@ impl NodeField {
                     // SAFETY: The pointer will always be valid or NULL.
                     // The lifetime won't outlive self
                     unsafe {
-                        <#inner as FromNodeMut>::from_ptr_mut(&mut self.mut_ref.#fname, self.id)
+                        <#inner as FromNodeMut>::from_raw_mut(&mut self.mut_ref.#fname, self.id)
                     }
                 }
             }),
@@ -403,6 +403,7 @@ impl NodeField {
     }
 }
 
+#[derive(Clone)]
 enum NodeFieldType {
     Private(syn::Type),
     Node,
@@ -659,14 +660,10 @@ fn generate_node_structs(
         out_file.items.push(parse_quote! {
             impl<'a> crate::FromNodePtr for &'a #sname {
                 unsafe fn from_ptr(tag: NodeTag, ptr: Option<NonNull<Node>>) -> Self {
-                    if tag == #sname::TAG {
-                        let p = ptr.expect("Unexpected NULL ptr")
-                            .cast();
-                        // SAFETY: We've checked the tag
-                        unsafe { p.as_ref() }
-                    } else {
-                        panic!(concat!("Expected a ", stringify!(#sname), "got tag {}"), tag)
-                    }
+                    #sname::check_tag(tag);
+                    let p = ptr.expect("Unexpected NULL ptr").cast();
+                    // SAFETY: We've checked the tag
+                    unsafe { p.as_ref() }
                 }
             }
         });
@@ -676,12 +673,11 @@ fn generate_node_structs(
                 type MutRef<'mutref> = #smut<'mem, 'mutref>;
 
                 unsafe fn from_ptr_mut<'mutref>(
+                    tag: Option<NodeTag>,
                     ptr: &'mutref mut *mut Node,
                     id: Id<'mem>,
                 ) -> Self::MutRef<'mutref> {
-                    if ptr.is_null() {
-                        panic!("from_ptr_mut called on a NULL pointer")
-                    }
+                    #sname::check_tag(tag.expect("from_ptr_mut called on a NULL pointer"));
 
                     // SAFETY: Caller is responsible for making this safe
                     let mut_ref = unsafe {
@@ -860,18 +856,18 @@ fn generate_node_enum(
             type MutRef<'mutref> = NodeMut<'mem, 'mutref>;
 
             unsafe fn from_ptr_mut<'mutref>(
+                tag: Option<raw::NodeTag>,
                 ptr: &'mutref mut *mut raw::Node,
                 id: Id<'mem>,
             ) -> Self::MutRef<'mutref> {
-                // SAFETY: Pointer is not null. Caller is responsible for making
-                // this safe.
+                // SAFETY: Caller is responsible for making this safe.
                 unsafe {
-                    match ptr.as_ref().map(|p| p.type_) {
+                    match tag {
                         None => NodeMut::None(ptr, id),
                         #(Some(nodes::#node_names::TAG) => {
-                            NodeMut::#node_names(<&'mem nodes::#node_names>::from_ptr_mut(ptr, id))
+                            NodeMut::#node_names(<&'mem nodes::#node_names>::from_ptr_mut(tag, ptr, id))
                         })*
-                        Some(raw::NodeTag_T_List) => NodeMut::NodeList(<&'mem crate::list::NodeList>::from_ptr_mut(ptr, id)),
+                        Some(raw::NodeTag_T_List) => NodeMut::NodeList(<&'mem crate::list::NodeList>::from_ptr_mut(tag, ptr, id)),
                         Some(_) => NodeMut::Invalid(ptr, id),
                     }
                 }
@@ -1284,6 +1280,15 @@ fn doc_comment(attr: &syn::Attribute) -> Option<&syn::LitStr> {
 }
 
 fn build_node_struct(s: &syn::ItemStruct, type_comment_regex: &Regex) -> NodeStruct {
+    // A set of fields that we want to change the type of, either because they
+    // have a known type that we can't programatically determine, or they have
+    // an incorrectly documented type
+    const FIELD_TYPE_OVERRIDES: &[((&str, &str), NodeFieldType)] = &[
+        // Comment claims it's a list of TypeName. That's just a straight up
+        // lie, it's a list of lists.
+        (("DefineStmt", "args"), NodeFieldType::List),
+    ];
+
     let attrs = clean_doc_comments(&s.attrs);
     let name = s.ident.clone();
     let fields = s
@@ -1292,7 +1297,12 @@ fn build_node_struct(s: &syn::ItemStruct, type_comment_regex: &Regex) -> NodeStr
         .map(|f| {
             let attrs = clean_doc_comments(&f.attrs);
             let name = snake_case(f.ident.as_ref().expect("C doesn't have unnamed fields"));
-            let ty = determine_field_ty(f, type_comment_regex);
+            let ty = FIELD_TYPE_OVERRIDES
+                .iter()
+                .find_map(|((sname, fname), ty)| {
+                    (s.ident == sname && name == fname).then(|| ty.clone())
+                })
+                .unwrap_or_else(|| determine_field_ty(f, type_comment_regex));
             NodeField { attrs, name, ty }
         })
         .collect();

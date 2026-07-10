@@ -1,5 +1,5 @@
 use crate::list_mut::NodeListMut;
-use crate::{AsNodePtr, AsNodeRef, FromNodeMut, FromNodePtr, List, Node, raw};
+use crate::{AsNodePtr, AsNodeRef, ConstructableNode, FromNodeMut, FromNodePtr, List, Node, raw};
 use std::ffi::c_int;
 use std::iter::FusedIterator;
 use std::marker::PhantomData;
@@ -126,9 +126,13 @@ impl<'mem> FromNodeMut<'mem> for &'mem NodeList {
     type MutRef<'mutref> = NodeListMut<'mem, 'mutref, NodeList>;
 
     unsafe fn from_ptr_mut<'mutref>(
+        tag: Option<raw::NodeTag>,
         ptr: &'mutref mut *mut raw::Node,
         id: generativity::Id<'mem>,
     ) -> Self::MutRef<'mutref> {
+        if let Some(tag) = tag {
+            NodeList::check_tag(tag);
+        }
         // SAFETY: &mut *mut T has the same repr as &mut Option<&mut T>. Caller
         // is responsible for making this otherwise safe.
         let mut_ref = unsafe {
@@ -139,6 +143,10 @@ impl<'mem> FromNodeMut<'mem> for &'mem NodeList {
         };
         NodeListMut::new(id, mut_ref)
     }
+}
+
+impl ConstructableNode for NodeList {
+    const TAG: raw::NodeTag = raw::NodeTag_T_List;
 }
 
 impl List for NodeList {
@@ -346,9 +354,13 @@ impl<'mem, T: 'static> FromNodeMut<'mem> for &'mem CastNodeList<T> {
     type MutRef<'mutref> = NodeListMut<'mem, 'mutref, CastNodeList<T>>;
 
     unsafe fn from_ptr_mut<'mutref>(
+        tag: Option<raw::NodeTag>,
         ptr: &'mutref mut *mut raw::Node,
         id: generativity::Id<'mem>,
     ) -> Self::MutRef<'mutref> {
+        if let Some(tag) = tag {
+            NodeList::check_tag(tag);
+        }
         // SAFETY: &mut *mut T has the same repr as &mut Option<&mut T>. Caller
         // is responsible for making this otherwise safe.
         let mut_ref = unsafe {
