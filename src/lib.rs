@@ -35,7 +35,7 @@ pub fn parse(sql: &str) -> Result<ParseResult, error::Error> {
         mem.within(|| {
             raw::pg_query_raw_parse(
                 cstring.as_ptr(),
-                raw::PgQueryParseMode_PG_QUERY_PARSE_DEFAULT as _,
+                raw::PgQueryParseMode::PG_QUERY_PARSE_DEFAULT as _,
             )
         })
     };

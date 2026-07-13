@@ -187,7 +187,7 @@ where
     // SAFETY: Nothing holds a pointer to cb after this function returns.
     // PG exceptions are caught and never jump over Rust frames.
     unsafe {
-        if (*node).type_ == raw::NodeTag_T_RawStmt {
+        if (*node).type_ == raw::NodeTag::T_RawStmt {
             node = <&nodes::RawStmt>::from_raw(node).stmt().as_ptr()
         }
         raw::wrapped_raw_expression_tree_walker_impl(
@@ -287,7 +287,7 @@ fn error_is_set_after_recursion() {
     let mut invalid_node = raw::Node { type_: u32::MAX };
     let mut ptr_to_invalid_node = &raw mut invalid_node;
     let mut list = raw::List {
-        type_: raw::NodeTag_T_List,
+        type_: raw::NodeTag::T_List,
         length: 1,
         max_length: 1,
         elements: &raw mut ptr_to_invalid_node as *mut raw::ListCell,

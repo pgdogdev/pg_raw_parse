@@ -2,10 +2,7 @@
 
 use crate::make::MemoryToken;
 use crate::nodes;
-use crate::raw::{
-    NodeTag, NodeTag_T_BitString, NodeTag_T_Boolean, NodeTag_T_Float, NodeTag_T_Integer,
-    NodeTag_T_String, ValUnion,
-};
+use crate::raw::{NodeTag, ValUnion};
 use std::ffi::c_int;
 use std::mem::ManuallyDrop;
 use std::str::FromStr;
@@ -14,14 +11,14 @@ use std::str::FromStr;
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
 pub enum ConstValue<'a> {
-    Integer(c_int) = NodeTag_T_Integer,
-    Float(&'a str) = NodeTag_T_Float,
-    Boolean(bool) = NodeTag_T_Boolean,
-    String(&'a str) = NodeTag_T_String,
-    BitString(&'a str) = NodeTag_T_BitString,
+    Integer(c_int) = NodeTag::T_Integer,
+    Float(&'a str) = NodeTag::T_Float,
+    Boolean(bool) = NodeTag::T_Boolean,
+    String(&'a str) = NodeTag::T_String,
+    BitString(&'a str) = NodeTag::T_BitString,
     /// Either a node that isn't one of the ValUnion variants, or Postgres
     /// has added a new node that needs to be handled in this crate.
-    Unrecognized(NodeTag),
+    Unrecognized(NodeTag::Type),
 }
 
 impl<'a> ConstValue<'a> {
@@ -32,11 +29,11 @@ impl<'a> ConstValue<'a> {
         // SAFETY: We always check the tag before casting the union
         unsafe {
             match val.node.type_ {
-                NodeTag_T_Integer => Self::Integer(val.ival.ival),
-                NodeTag_T_Float => Self::Float(val.fval.fval().unwrap_or_default()),
-                NodeTag_T_Boolean => Self::Boolean(val.boolval.boolval),
-                NodeTag_T_String => Self::String(val.sval.sval().unwrap_or_default()),
-                NodeTag_T_BitString => Self::BitString(val.bsval.bsval().unwrap_or_default()),
+                NodeTag::T_Integer => Self::Integer(val.ival.ival),
+                NodeTag::T_Float => Self::Float(val.fval.fval().unwrap_or_default()),
+                NodeTag::T_Boolean => Self::Boolean(val.boolval.boolval),
+                NodeTag::T_String => Self::String(val.sval.sval().unwrap_or_default()),
+                NodeTag::T_BitString => Self::BitString(val.bsval.bsval().unwrap_or_default()),
                 tag => Self::Unrecognized(tag),
             }
         }
@@ -46,31 +43,31 @@ impl<'a> ConstValue<'a> {
         match self {
             Self::Integer(i) => ValUnion {
                 ival: ManuallyDrop::new(nodes::Integer {
-                    type_: NodeTag_T_Integer,
+                    type_: NodeTag::T_Integer,
                     ival: *i,
                 }),
             },
             Self::Float(f) => ValUnion {
                 fval: ManuallyDrop::new(nodes::Float {
-                    type_: NodeTag_T_Float,
+                    type_: NodeTag::T_Float,
                     fval: mem.copy_string(*f).into_ptr(),
                 }),
             },
             Self::Boolean(b) => ValUnion {
                 boolval: ManuallyDrop::new(nodes::Boolean {
-                    type_: NodeTag_T_Boolean,
+                    type_: NodeTag::T_Boolean,
                     boolval: *b,
                 }),
             },
             Self::String(s) => ValUnion {
                 sval: ManuallyDrop::new(nodes::String {
-                    type_: NodeTag_T_String,
+                    type_: NodeTag::T_String,
                     sval: mem.copy_string(*s).into_ptr(),
                 }),
             },
             Self::BitString(bs) => ValUnion {
                 bsval: ManuallyDrop::new(nodes::BitString {
-                    type_: NodeTag_T_BitString,
+                    type_: NodeTag::T_BitString,
                     bsval: mem.copy_string(*bs).into_ptr(),
                 }),
             },

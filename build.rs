@@ -40,10 +40,7 @@ fn main() {
         )
         .derive_copy(false)
         .default_non_copy_union_style(bindgen::NonCopyUnionStyle::ManuallyDrop)
-        .rustified_non_exhaustive_enum("A_Expr_Kind")
-        .rustified_non_exhaustive_enum("BoolExprType")
-        .rustified_non_exhaustive_enum("SortByDir")
-        .rustified_non_exhaustive_enum("SortByNulls")
+        .default_enum_style(bindgen::EnumVariation::ModuleConsts)
         .clang_arg(format!("-I{}", build_dir.join("include").display()))
         .clang_arg(format!("-I{}", c_dir.display()))
         .clang_arg(format!(
@@ -176,8 +173,8 @@ struct NodeStruct {
 
 impl NodeStruct {
     fn tag_expr(&self) -> syn::Expr {
-        let tag_name = syn::Ident::new(&format!("NodeTag_T_{}", &self.name), self.name.span());
-        parse_quote!(raw::#tag_name)
+        let tag_name = syn::Ident::new(&format!("T_{}", &self.name), self.name.span());
+        parse_quote!(raw::NodeTag::#tag_name)
     }
 
     fn mut_ref_name(&self) -> syn::Ident {
@@ -472,11 +469,11 @@ fn generate_node_structs(
     // the C bindings. But any type aliases to primitives are fine
     let type_aliases_to_import = file.items.iter().filter_map(|item| match item {
         syn::Item::Type(t) if is_primitive_alias(t) => Some(&t.ident),
+        syn::Item::Mod(m) if let Some(name) = enum_module_name(m) => Some(name),
         _ => None,
     });
     out_file.items.push(parse_quote! {
-        #[allow(unused)]
-        use crate::raw::{#(#type_aliases_to_import,)*};
+        pub use crate::raw::{#(#type_aliases_to_import,)*};
     });
 
     let raw_node_structs = file
@@ -496,7 +493,7 @@ fn generate_node_structs(
                 Some(syn::Field {
                     ty: typ,
                     ..
-                }) if *typ == parse_quote!(NodeTag)
+                }) if *typ == parse_quote!(NodeTag::Type)
                     || *typ == parse_quote!(Expr)
             )
         });
@@ -653,13 +650,13 @@ fn generate_node_structs(
         let tag = s.tag_expr();
         out_file.items.push(parse_quote! {
             impl crate::ConstructableNode for #sname {
-                const TAG: NodeTag = #tag;
+                const TAG: NodeTag::Type = #tag;
             }
         });
 
         out_file.items.push(parse_quote! {
             impl<'a> crate::FromNodePtr for &'a #sname {
-                unsafe fn from_ptr(tag: NodeTag, ptr: Option<NonNull<Node>>) -> Self {
+                unsafe fn from_ptr(tag: NodeTag::Type, ptr: Option<NonNull<Node>>) -> Self {
                     #sname::check_tag(tag);
                     let p = ptr.expect("Unexpected NULL ptr").cast();
                     // SAFETY: We've checked the tag
@@ -673,7 +670,7 @@ fn generate_node_structs(
                 type MutRef<'mutref> = #smut<'mem, 'mutref>;
 
                 unsafe fn from_ptr_mut<'mutref>(
-                    tag: Option<NodeTag>,
+                    tag: Option<NodeTag::Type>,
                     ptr: &'mutref mut *mut Node,
                     id: Id<'mem>,
                 ) -> Self::MutRef<'mutref> {
@@ -796,7 +793,7 @@ fn generate_node_enum(
         pub enum Node<'a> {
             /// A null pointer to a node
             None = 0,
-            NodeList(&'a crate::list::NodeList) = raw::NodeTag_T_List,
+            NodeList(&'a crate::list::NodeList) = raw::NodeTag::T_List,
             #(#enum_variants,)*
             /// A pointer to a node that wasn't part of a parse tree, or that
             /// pg_raw_parse doesn't know how to generate code for.
@@ -809,7 +806,7 @@ fn generate_node_enum(
             /// SAFETY: The caller is responsible for ensuring the provided
             /// lifetime does not outlast the memory context this Node was
             /// allocated in
-            unsafe fn from_ptr(tag: raw::NodeTag, ptr: Option<NonNull<raw::Node>>) -> Self {
+            unsafe fn from_ptr(tag: raw::NodeTag::Type, ptr: Option<NonNull<raw::Node>>) -> Self {
                 // SAFETY: PG will never return an invalid Node other than NULL
                 // and the caller is ensuring a valid lifetime
                 match (tag, ptr) {
@@ -820,7 +817,7 @@ fn generate_node_enum(
                         Self::#node_names(unsafe { ptr.cast().as_ref() })
                     })*
                     // SAFETY: We're checking the tag
-                    (raw::NodeTag_T_List, Some(ptr)) => {
+                    (raw::NodeTag::T_List, Some(ptr)) => {
                         debug_assert!(ptr.cast::<list::NodeList>().is_aligned());
                         Self::NodeList(unsafe { ptr.cast().as_ref() })
                     }
@@ -856,7 +853,7 @@ fn generate_node_enum(
             type MutRef<'mutref> = NodeMut<'mem, 'mutref>;
 
             unsafe fn from_ptr_mut<'mutref>(
-                tag: Option<raw::NodeTag>,
+                tag: Option<raw::NodeTag::Type>,
                 ptr: &'mutref mut *mut raw::Node,
                 id: Id<'mem>,
             ) -> Self::MutRef<'mutref> {
@@ -867,7 +864,7 @@ fn generate_node_enum(
                         #(Some(nodes::#node_names::TAG) => {
                             NodeMut::#node_names(<&'mem nodes::#node_names>::from_ptr_mut(tag, ptr, id))
                         })*
-                        Some(raw::NodeTag_T_List) => NodeMut::NodeList(<&'mem crate::list::NodeList>::from_ptr_mut(tag, ptr, id)),
+                        Some(raw::NodeTag::T_List) => NodeMut::NodeList(<&'mem crate::list::NodeList>::from_ptr_mut(tag, ptr, id)),
                         Some(_) => NodeMut::Invalid(ptr, id),
                     }
                 }
@@ -884,7 +881,7 @@ fn generate_node_enum(
         pub enum NodeMut<'mem, 'mutref> {
             /// A NULL pointer to a node
             None(&'mutref mut *mut raw::Node, Id<'mem>) = 0,
-            NodeList(<&'mem crate::list::NodeList as FromNodeMut<'mem>>::MutRef<'mutref>) = raw::NodeTag_T_List,
+            NodeList(<&'mem crate::list::NodeList as FromNodeMut<'mem>>::MutRef<'mutref>) = raw::NodeTag::T_List,
             #(#enum_variants,)*
             /// A pointer to a node that wasn't part of a parse tree, or that
             /// pg_raw_parse doesn't know how to generate code for.
@@ -1212,15 +1209,28 @@ fn is_primitive_alias(alias: &syn::ItemType) -> bool {
                 path: syn::Path { segments, .. },
                 ..
             })
-                if segments.last().map(|s| {
+                if segments.last().is_some_and(|s| {
                     s.ident.to_string().contains("int")
                         || s.ident == "usize"
                         || s.ident == "isize"
                         || s.ident == "Oid"
                         || s.ident == "f32"
                         || s.ident == "f64"
-                }).unwrap_or(false)
+                })
         )
+}
+
+fn enum_module_name(module: &syn::ItemMod) -> Option<&syn::Ident> {
+    module
+        .content
+        .as_ref()
+        .is_some_and(|(_, items)| {
+            items.iter().any(|item| match item {
+                syn::Item::Type(t) => t.ident == "Type",
+                _ => false,
+            })
+        })
+        .then_some(&module.ident)
 }
 
 /// For any attributes that are doc comments, clean up characters that will
@@ -1319,8 +1329,8 @@ fn build_node_struct(s: &syn::ItemStruct, type_comment_regex: &Regex) -> NodeStr
 fn determine_field_ty(field: &syn::Field, comment_regex: &Regex) -> NodeFieldType {
     if field.ty == parse_quote!(*mut Node) || field.ty == parse_quote!(*mut Expr) {
         NodeFieldType::Node
-    } else if field.ty == parse_quote!(Expr) || field.ty == parse_quote!(NodeTag) {
-        NodeFieldType::Private(parse_quote!(NodeTag))
+    } else if field.ty == parse_quote!(Expr) || field.ty == parse_quote!(NodeTag::Type) {
+        NodeFieldType::Private(parse_quote!(NodeTag::Type))
     } else if field.ty == parse_quote!(*mut List) {
         determine_list_field_ty(field, comment_regex)
     } else if is_c_string(&field.ty) {

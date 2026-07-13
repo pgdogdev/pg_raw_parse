@@ -6,8 +6,6 @@ use generativity::Id;
 use std::fmt;
 use std::ptr::NonNull;
 
-pub use crate::raw::{A_Expr_Kind, BoolExprType, SortByDir, SortByNulls};
-
 include!(concat!(env!("OUT_DIR"), "/nodes_raw.rs"));
 
 impl Bitmapset {
@@ -20,7 +18,7 @@ impl Bitmapset {
 impl RawStmt {
     pub(crate) fn new<N: AsNodePtr>(node: N) -> Self {
         Self {
-            type_: raw::NodeTag_T_RawStmt,
+            type_: raw::NodeTag::T_RawStmt,
             stmt: node.as_ptr(),
             stmt_location: -1,
             stmt_len: 0,
@@ -73,7 +71,7 @@ fn test_debug_output() {
         ],
         where_clause: A_Expr(
             A_Expr {
-                kind: AEXPR_OP,
+                kind: 0,
                 name: [
                     String(
                         String {

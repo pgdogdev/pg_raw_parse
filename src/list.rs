@@ -7,7 +7,7 @@ use std::ptr::NonNull;
 use std::{fmt, ptr, slice};
 
 pub(crate) const EMPTY_LIST: NodeList = NodeList {
-    _type: raw::NodeTag_T_List,
+    _type: raw::NodeTag::T_List,
     length: 0,
     _max: 0,
     elements: NonNull::dangling(),
@@ -15,7 +15,7 @@ pub(crate) const EMPTY_LIST: NodeList = NodeList {
 
 #[repr(C)]
 pub struct NodeList {
-    _type: raw::NodeTag,
+    _type: raw::NodeTag::Type,
     length: c_int,
     _max: c_int,
     elements: NonNull<*mut raw::Node>,
@@ -116,7 +116,7 @@ unsafe impl AsNodePtr for &NodeList {
 }
 
 impl FromNodePtr for &NodeList {
-    unsafe fn from_ptr(tag: raw::NodeTag, ptr: Option<NonNull<raw::Node>>) -> Self {
+    unsafe fn from_ptr(tag: raw::NodeTag::Type, ptr: Option<NonNull<raw::Node>>) -> Self {
         // SAFETY: Caller is responsible for making this safe
         unsafe { Node::from_ptr(tag, ptr) }.expect_node_list()
     }
@@ -126,7 +126,7 @@ impl<'mem> FromNodeMut<'mem> for &'mem NodeList {
     type MutRef<'mutref> = NodeListMut<'mem, 'mutref, NodeList>;
 
     unsafe fn from_ptr_mut<'mutref>(
-        tag: Option<raw::NodeTag>,
+        tag: Option<raw::NodeTag::Type>,
         ptr: &'mutref mut *mut raw::Node,
         id: generativity::Id<'mem>,
     ) -> Self::MutRef<'mutref> {
@@ -146,7 +146,7 @@ impl<'mem> FromNodeMut<'mem> for &'mem NodeList {
 }
 
 impl ConstructableNode for NodeList {
-    const TAG: raw::NodeTag = raw::NodeTag_T_List;
+    const TAG: raw::NodeTag::Type = raw::NodeTag::T_List;
 }
 
 impl List for NodeList {
@@ -326,7 +326,7 @@ where
 }
 
 impl<'a, T> FromNodePtr for &'a CastNodeList<T> {
-    unsafe fn from_ptr(tag: raw::NodeTag, ptr: Option<NonNull<raw::Node>>) -> Self {
+    unsafe fn from_ptr(tag: raw::NodeTag::Type, ptr: Option<NonNull<raw::Node>>) -> Self {
         // SAFETY: Caller is responsible for making this safe
         unsafe { <&'a NodeList>::from_ptr(tag, ptr) }.cast()
     }
@@ -354,7 +354,7 @@ impl<'mem, T: 'static> FromNodeMut<'mem> for &'mem CastNodeList<T> {
     type MutRef<'mutref> = NodeListMut<'mem, 'mutref, CastNodeList<T>>;
 
     unsafe fn from_ptr_mut<'mutref>(
-        tag: Option<raw::NodeTag>,
+        tag: Option<raw::NodeTag::Type>,
         ptr: &'mutref mut *mut raw::Node,
         id: generativity::Id<'mem>,
     ) -> Self::MutRef<'mutref> {
