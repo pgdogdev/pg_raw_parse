@@ -4,6 +4,7 @@ use crate::make::MemoryToken;
 use crate::nodes;
 use crate::raw::{NodeTag, ValUnion};
 use std::ffi::c_int;
+use std::fmt;
 use std::mem::ManuallyDrop;
 use std::str::FromStr;
 
@@ -121,6 +122,17 @@ impl<'a> ConstValue<'a> {
         match self {
             Self::BitString(s) => Some(s),
             _ => None,
+        }
+    }
+}
+
+impl fmt::Display for ConstValue<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Integer(i) => write!(f, "{}", i),
+            Self::Boolean(b) => write!(f, "{}", b),
+            Self::Float(s) | Self::String(s) | Self::BitString(s) => write!(f, "{}", s),
+            Self::Unrecognized(_) => Err(fmt::Error),
         }
     }
 }
