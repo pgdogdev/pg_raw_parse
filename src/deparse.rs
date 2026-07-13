@@ -48,6 +48,24 @@ pub fn deparse<'a, N: Into<Node<'a>>>(node: N) -> Result<DeparseResult> {
     DeparseResult::deparse(stmt_ref)
 }
 
+pub fn deparse_stmts<'a, N>(nodes: impl IntoIterator<Item = N>) -> Result<String>
+where
+    N: Into<Node<'a>>,
+{
+    let mut iter = nodes.into_iter();
+    let mut result = String::new();
+    if let Some(first) = iter.next() {
+        result.push_str(deparse(first)?.as_str());
+    }
+
+    for elem in iter {
+        result.push(';');
+        result.push_str(deparse(elem)?.as_str());
+    }
+
+    Ok(result)
+}
+
 #[test]
 fn test_deparse() {
     fn run_test(query: &str) {

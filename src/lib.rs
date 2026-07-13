@@ -18,7 +18,7 @@ pub mod transform;
 pub mod walk;
 
 pub use crate::const_val::ConstValue;
-pub use crate::deparse::{DeparseResult, deparse};
+pub use crate::deparse::{DeparseResult, deparse, deparse_stmts};
 pub use crate::error::{Error, Result};
 pub use crate::node_enum::{Node, NodeMut};
 pub use crate::owned::Owned;
