@@ -1287,6 +1287,9 @@ fn build_node_struct(s: &syn::ItemStruct, type_comment_regex: &Regex) -> NodeStr
         // Comment claims it's a list of TypeName. That's just a straight up
         // lie, it's a list of lists.
         (("DefineStmt", "args"), NodeFieldType::List),
+        // Comment claims args is A_Const, but that isn't the case for
+        // `SET TRANSACTION ...`
+        (("VariableSetStmt", "args"), NodeFieldType::List),
     ];
 
     let attrs = clean_doc_comments(&s.attrs);
