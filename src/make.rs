@@ -79,7 +79,7 @@ impl<'mem> MemoryToken<'mem> {
             Unique(ptr::null_mut(), self.id, PhantomData)
         } else {
             let list_to_copy = raw::List {
-                type_: raw::NodeTag_T_List,
+                type_: raw::NodeTag::T_List,
                 length: elems.len() as _,
                 max_length: elems.len() as _,
                 elements: elems.as_ptr().cast_mut().cast(),

@@ -52,11 +52,11 @@ pub trait FromNodePtr: Sized {
     }
 
     /// SAFETY: The caller must provide a valid node pointer
-    unsafe fn from_ptr(tag: NodeTag, ptr: Option<NonNull<raw::Node>>) -> Self;
+    unsafe fn from_ptr(tag: NodeTag::Type, ptr: Option<NonNull<raw::Node>>) -> Self;
 }
 
 impl<T: FromNodePtr> FromNodePtr for Option<T> {
-    unsafe fn from_ptr(tag: NodeTag, ptr: Option<NonNull<raw::Node>>) -> Self {
+    unsafe fn from_ptr(tag: NodeTag::Type, ptr: Option<NonNull<raw::Node>>) -> Self {
         ptr.map(|ptr|
             // SAFETY: Caller is responsible for making this safe
             unsafe { T::from_ptr(tag, Some(ptr)) })
@@ -87,7 +87,7 @@ pub trait FromNodeMut<'mem> {
     /// tag must always be value of `(**ptr).type_`. It must always be present,
     /// unless the pointer is NULL.
     unsafe fn from_ptr_mut<'mutref>(
-        tag: Option<raw::NodeTag>,
+        tag: Option<NodeTag::Type>,
         ptr: &'mutref mut *mut raw::Node,
         id: Id<'mem>,
     ) -> Self::MutRef<'mutref>;
@@ -97,7 +97,7 @@ impl<'mem, T: FromNodeMut<'mem>> FromNodeMut<'mem> for Option<T> {
     type MutRef<'mutref> = Option<T::MutRef<'mutref>>;
 
     unsafe fn from_ptr_mut<'mutref>(
-        tag: Option<raw::NodeTag>,
+        tag: Option<NodeTag::Type>,
         ptr: &'mutref mut *mut raw::Node,
         id: Id<'mem>,
     ) -> Self::MutRef<'mutref> {
@@ -111,9 +111,9 @@ impl<'mem, T: FromNodeMut<'mem>> FromNodeMut<'mem> for Option<T> {
 }
 
 pub trait ConstructableNode: Sized {
-    const TAG: NodeTag;
+    const TAG: NodeTag::Type;
 
-    fn check_tag(tag: NodeTag) {
+    fn check_tag(tag: NodeTag::Type) {
         if tag != Self::TAG {
             panic!(
                 "Expected {}, got tag {}",

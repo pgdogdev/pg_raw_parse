@@ -37,7 +37,7 @@ fn test_raw_node_bindings_arent_generated() {
                 Some(syn::Field {
                     ty,
                     ..
-                }) if *ty == id::<syn::Type>(parse_quote!(NodeTag))
+                }) if *ty == id::<syn::Type>(parse_quote!(NodeTag::Type))
                     || *ty == id::<syn::Type>(parse_quote!(Expr))
             )
         })
