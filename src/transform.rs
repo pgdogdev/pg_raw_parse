@@ -44,6 +44,10 @@ impl<'mem, 'mutref> Assignable<'mem, 'mutref> {
     pub fn new(node: &'mutref mut Unique<'mem, Node<'_>>) -> Self {
         Self(node.as_mut())
     }
+
+    pub fn into_inner(self) -> NodeMut<'mem, 'mutref> {
+        self.0
+    }
 }
 
 impl<'mem, 'mutref> Deref for Assignable<'mem, 'mutref> {
@@ -85,7 +89,7 @@ where
 {
     fn transform_node<'mutref>(&mut self, node: Assignable<'mem, 'mutref>) {
         if let Some(node) = self.0(node) {
-            transform_node(node, self)
+            transform_node(node.0, self)
         }
     }
 }

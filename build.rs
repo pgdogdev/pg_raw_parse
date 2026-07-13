@@ -1078,7 +1078,7 @@ fn generate_transformer(
     let mut transform_trait: syn::ItemTrait = parse_quote! {
         pub trait Transform<'mem> {
             fn transform_node<'mutref>(&mut self, node: Assignable<'mem, 'mutref>) {
-                transform_node(node, self);
+                transform_node(node.into_inner(), self);
             }
 
             fn transform_list<'mutref>(&mut self, list: NodeListMut<'mem, 'mutref, NodeList>) {
@@ -1091,13 +1091,13 @@ fn generate_transformer(
     let trans_fnames = node_structs.iter().map(|s| s.transform_function_name());
     out_file.items.push(parse_quote! {
         pub fn transform_node<'mem, 'mutref, T>(
-            node: Assignable<'mem, 'mutref>,
+            node: NodeMut<'mem, 'mutref>,
             transformer: &mut T,
         )
         where
             T: Transform<'mem> + ?Sized,
         {
-            match node.0 {
+            match node {
                 NodeMut::None(..) | NodeMut::Invalid(..) => {},
                 NodeMut::NodeList(list) => transformer.transform_list(list),
                 #(NodeMut::#node_names(node) => transformer.#trans_fnames(node),)*
