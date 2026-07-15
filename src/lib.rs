@@ -11,6 +11,7 @@ mod mem;
 pub mod node_enum;
 mod node_ptr;
 pub mod nodes;
+pub mod normalize;
 mod owned;
 mod pg_error;
 pub mod raw;
