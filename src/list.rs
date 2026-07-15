@@ -13,6 +13,10 @@ pub(crate) const EMPTY_LIST: NodeList = NodeList {
     elements: NonNull::dangling(),
 };
 
+pub const fn empty_list<T>() -> &'static CastNodeList<T> {
+    &EMPTY_LIST.cast::<T>()
+}
+
 #[repr(C)]
 pub struct NodeList {
     _type: raw::NodeTag::Type,
