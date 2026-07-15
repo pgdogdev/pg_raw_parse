@@ -198,7 +198,9 @@ struct NodeField {
 impl NodeField {
     fn vis(&self) -> syn::Visibility {
         match self.ty {
-            NodeFieldType::Primitive(_) => parse_quote!(pub),
+            NodeFieldType::Primitive(_) | NodeFieldType::PrimitiveSkipConstructor(_) => {
+                parse_quote!(pub)
+            }
             NodeFieldType::CString => parse_quote!(pub(crate)),
             NodeFieldType::Private(_) if self.name == "type_" => parse_quote!(pub(crate)),
             _ => syn::Visibility::Inherited,
@@ -212,7 +214,7 @@ impl NodeField {
         let fname = &self.name;
         let ret = self.ty(&parse_quote!('_));
         match &self.ty {
-            Private(_) | Primitive(_) => None,
+            Private(_) | Primitive(_) | PrimitiveSkipConstructor(_) => None,
 
             Node | CastNode(_) | List | CastList(_) => Some(parse_quote! {
                 #(#fattrs)*
@@ -262,7 +264,7 @@ impl NodeField {
         let inner = &self.ty(&mem);
         match &self.ty {
             // No reason to provide for these, user can just `&mut node.field`
-            Private(_) | Primitive(_) => None,
+            Private(_) | Primitive(_) | PrimitiveSkipConstructor(_) => None,
 
             Node | CastNode(_) | List | CastList(_) => Some(parse_quote! {
                 #[inline]
@@ -303,7 +305,7 @@ impl NodeField {
 
         let fname = &self.name;
         let value_expr: syn::Expr = match &self.ty {
-            Primitive(_) => parse_quote!(&self.#fname),
+            Primitive(_) | PrimitiveSkipConstructor(_) => parse_quote!(&self.#fname),
             Node | CastNode(_) | List | CastList(_) | CString | ConstVal => {
                 parse_quote!(&self.#fname())
             }
@@ -340,7 +342,7 @@ impl NodeField {
         let fname = &self.name;
         match self.ty {
             Primitive(_) | ConstVal => parse_quote!(#fname),
-            Private(_) => parse_quote!(Default::default()),
+            Private(_) | PrimitiveSkipConstructor(_) => parse_quote!(Default::default()),
             Node | CastNode(_) | List | CastList(_) => parse_quote!(#fname.into_ptr().cast()),
             CString => parse_quote! {
                 #fname
@@ -360,6 +362,7 @@ impl NodeField {
                     .map(|f| f.into_ptr())
                     .unwrap_or(std::ptr::null_mut())
             },
+            PrimitiveSkipConstructor(_) => parse_quote!(#fname),
             _ => self.as_raw_expr(),
         }
     }
@@ -395,7 +398,7 @@ impl NodeField {
                 Some(parse_quote!(#transformer.#trans_fname(#node.#mut_accessor());))
             }
 
-            Private(_) | Primitive(_) | ConstVal | CString => None,
+            Private(_) | Primitive(_) | PrimitiveSkipConstructor(_) | ConstVal | CString => None,
         }
     }
 }
@@ -410,12 +413,13 @@ enum NodeFieldType {
     CString,
     ConstVal,
     Primitive(syn::Type),
+    PrimitiveSkipConstructor(syn::Type),
 }
 
 impl NodeFieldType {
     fn raw_ty(&self) -> syn::Type {
         match self {
-            Self::Private(t) | Self::Primitive(t) => t.clone(),
+            Self::Private(t) | Self::Primitive(t) | Self::PrimitiveSkipConstructor(t) => t.clone(),
             Self::Node | Self::CastNode(_) | Self::List | Self::CastList(_) => {
                 parse_quote!(*mut Node)
             }
@@ -426,7 +430,7 @@ impl NodeFieldType {
 
     fn ty(&self, lifetime: &syn::Lifetime) -> syn::Type {
         match self {
-            Self::Private(t) | Self::Primitive(t) => t.clone(),
+            Self::Private(t) | Self::Primitive(t) | Self::PrimitiveSkipConstructor(t) => t.clone(),
             Self::Node => parse_quote!(crate::Node<#lifetime>),
             Self::CastNode(t) => parse_quote!(Option<&#lifetime crate::nodes::#t>),
             Self::List => parse_quote!(&#lifetime crate::list::NodeList),
@@ -439,7 +443,7 @@ impl NodeFieldType {
     fn constructor_ty(&self, mem: &syn::Lifetime) -> Option<syn::Type> {
         let inner = self.ty(&parse_quote!('_));
         match self {
-            Self::Private(_) => None,
+            Self::Private(_) | Self::PrimitiveSkipConstructor(_) => None,
             Self::Primitive(_) => Some(inner),
             Self::ConstVal => Some(parse_quote!(crate::raw::ValUnion)),
             Self::Node | Self::CastNode(_) | Self::List | Self::CastList(_) => {
@@ -1344,8 +1348,10 @@ fn determine_field_ty(field: &syn::Field, comment_regex: &Regex) -> NodeFieldTyp
         // At this point any pointers we haven't yet matched should just be
         // specific types of nodes
         NodeFieldType::CastNode(i.clone())
-    } else if field.ty == parse_quote!(ParseLoc) || is_flexible_array_ty(&field.ty) {
+    } else if is_flexible_array_ty(&field.ty) {
         NodeFieldType::Private(field.ty.clone())
+    } else if field.ty == parse_quote!(ParseLoc) {
+        NodeFieldType::PrimitiveSkipConstructor(field.ty.clone())
     } else {
         NodeFieldType::Primitive(field.ty.clone())
     }

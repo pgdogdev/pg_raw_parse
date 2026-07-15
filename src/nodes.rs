@@ -48,9 +48,11 @@ fn test_debug_output() {
                                 A_Star { .. },
                             ),
                         ],
+                        location: 7,
                         ..
                     },
                 ),
+                location: 7,
                 ..
             },
         ],
@@ -65,6 +67,7 @@ fn test_debug_output() {
                     inh: true,
                     relpersistence: 112,
                     alias: None,
+                    location: 14,
                     ..
                 },
             ),
@@ -94,6 +97,7 @@ fn test_debug_output() {
                                 },
                             ),
                         ],
+                        location: 26,
                         ..
                     },
                 ),
@@ -105,9 +109,11 @@ fn test_debug_output() {
                             ),
                         ),
                         isnull: false,
+                        location: 31,
                         ..
                     },
                 ),
+                location: 29,
                 ..
             },
         ),
