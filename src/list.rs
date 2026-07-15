@@ -298,6 +298,13 @@ impl<T> CastNodeList<T> {
     }
 }
 
+impl CastNodeList<crate::nodes::RawStmt> {
+    /// Returns the statements in this list
+    pub fn stmts(&self) -> impl Iterator<Item = crate::Node<'_>> {
+        self.iter().map(|s| s.stmt())
+    }
+}
+
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     use crate::nodes::String;
