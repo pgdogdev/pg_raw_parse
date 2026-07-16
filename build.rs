@@ -1312,6 +1312,10 @@ fn build_node_struct(s: &syn::ItemStruct, type_comment_regex: &Regex) -> NodeStr
         // Comment claims args is A_Const, but that isn't the case for
         // `SET TRANSACTION ...`
         (("VariableSetStmt", "args"), NodeFieldType::List),
+        // Raw range partition bounds can contain A_Const for concrete values
+        // and ColumnRef for MINVALUE/MAXVALUE, not only PartitionRangeDatum.
+        (("PartitionBoundSpec", "lowerdatums"), NodeFieldType::List),
+        (("PartitionBoundSpec", "upperdatums"), NodeFieldType::List),
     ];
 
     let attrs = clean_doc_comments(&s.attrs);
