@@ -113,6 +113,8 @@ fn test_debug_output() {
                         ..
                     },
                 ),
+                rexpr_list_start: 0,
+                rexpr_list_end: 0,
                 location: 29,
                 ..
             },
