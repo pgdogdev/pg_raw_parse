@@ -1,3 +1,5 @@
+#![allow(clippy::doc_lazy_continuation)] // Generated from C comments
+
 use crate::const_val::ConstValue;
 use crate::make::{PgStr, Unique};
 use crate::raw::{self, __IncompleteArrayField, List, Node, ValUnion};
