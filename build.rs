@@ -89,6 +89,9 @@ fn main() {
                 .unwrap(),
         )
         .blocklist_item("makeColumnDef") // Has more logic than we want
+        .blocklist_item("makeFromExpr") // Declared by libpg_query, not defined
+        .blocklist_item("makeFuncExpr") // Declared by libpg_query, not defined
+        .blocklist_item("makeTargetEntry") // Declared by libpg_query, not defined
         .blocklist_item("makeTypeName") // We map to the list form, not unqualified
         .generate()
         .unwrap()
