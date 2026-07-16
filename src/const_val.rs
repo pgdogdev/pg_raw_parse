@@ -51,7 +51,7 @@ impl<'a> ConstValue<'a> {
             Self::Float(f) => ValUnion {
                 fval: ManuallyDrop::new(nodes::Float {
                     type_: NodeTag::T_Float,
-                    fval: mem.copy_string(*f).into_ptr(),
+                    fval: mem.copy_string(f).into_ptr(),
                 }),
             },
             Self::Boolean(b) => ValUnion {
@@ -63,13 +63,13 @@ impl<'a> ConstValue<'a> {
             Self::String(s) => ValUnion {
                 sval: ManuallyDrop::new(nodes::String {
                     type_: NodeTag::T_String,
-                    sval: mem.copy_string(*s).into_ptr(),
+                    sval: mem.copy_string(s).into_ptr(),
                 }),
             },
             Self::BitString(bs) => ValUnion {
                 bsval: ManuallyDrop::new(nodes::BitString {
                     type_: NodeTag::T_BitString,
-                    bsval: mem.copy_string(*bs).into_ptr(),
+                    bsval: mem.copy_string(bs).into_ptr(),
                 }),
             },
             Self::Unrecognized(_) => panic!("as_raw called on unrecognized union type"),

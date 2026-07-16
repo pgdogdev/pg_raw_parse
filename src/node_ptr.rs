@@ -12,12 +12,12 @@ impl<T: AsNodeRef> AsNodeRef for Option<T> {
     type List = T::List;
 }
 
-impl<'a, T: AsNodeRef> AsNodeRef for &'a T {
+impl<T: AsNodeRef> AsNodeRef for &T {
     type AsRef<'b> = T::AsRef<'b>;
     type List = T::List;
 }
 
-impl<'a, T: AsNodeRef> AsNodeRef for &'a mut T {
+impl<T: AsNodeRef> AsNodeRef for &mut T {
     type AsRef<'b> = T::AsRef<'b>;
     type List = T::List;
 }
@@ -27,6 +27,7 @@ impl<'a, T: AsNodeRef> AsNodeRef for &'a mut T {
 /// [AsNodePtr::as_ptr] must convert back to Self when passed to
 /// [FromNodePtr::from_ptr]
 pub unsafe trait AsNodePtr: AsNodeRef {
+    #[allow(clippy::wrong_self_convention)]
     fn as_ptr(self) -> *mut raw::Node;
 }
 

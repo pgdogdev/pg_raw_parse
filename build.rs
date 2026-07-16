@@ -266,7 +266,7 @@ impl NodeField {
 
         let fname = &self.name;
         let func_name = syn::Ident::new(&format!("{fname}_mut"), fname.span());
-        let inner = &self.ty(&mem);
+        let inner = &self.ty(mem);
         match &self.ty {
             // No reason to provide for these, user can just `&mut node.field`
             Private(_) | Primitive(_) | PrimitiveSkipConstructor(_) => None,
@@ -295,7 +295,7 @@ impl NodeField {
     fn setter_method(&self, self_expr: syn::Expr, mem: &syn::Lifetime) -> Option<syn::ImplItem> {
         let fname = &self.name;
         let func_name = syn::Ident::new(&format!("set_{}", fname), fname.span());
-        let ty = self.setter_ty(&mem)?;
+        let ty = self.setter_ty(mem)?;
         let set_expr = self.setter_expr();
         Some(parse_quote! {
             #[inline]
@@ -664,7 +664,7 @@ fn generate_node_structs(
         });
 
         out_file.items.push(parse_quote! {
-            impl<'a> crate::FromNodePtr for &'a #sname {
+            impl crate::FromNodePtr for &#sname {
                 unsafe fn from_ptr(tag: NodeTag::Type, ptr: Option<NonNull<Node>>) -> Self {
                     #sname::check_tag(tag);
                     let p = ptr.expect("Unexpected NULL ptr").cast();
@@ -706,7 +706,7 @@ fn generate_node_structs(
 
         out_file.items.push(parse_quote! {
             // SAFETY: Self is a type of node
-            unsafe impl<'a> crate::AsNodePtr for &'a #sname {
+            unsafe impl crate::AsNodePtr for &#sname {
                 fn as_ptr(self) -> *mut Node {
                     std::ptr::from_ref(self).cast_mut().cast()
                 }
@@ -763,7 +763,7 @@ fn generate_node_structs(
                 type Target = #sname;
 
                 fn deref(&self) -> &Self::Target {
-                    &*self.mut_ref
+                    self.mut_ref
                 }
             }
         });
@@ -811,7 +811,7 @@ fn generate_node_enum(
     });
 
     out_file.items.push(parse_quote! {
-        impl<'a> FromNodePtr for Node<'a> {
+        impl FromNodePtr for Node<'_> {
             /// SAFETY: The caller is responsible for ensuring the provided
             /// lifetime does not outlast the memory context this Node was
             /// allocated in
@@ -837,7 +837,7 @@ fn generate_node_enum(
     });
 
     out_file.items.push(parse_quote! {
-        impl<'a> AsNodeRef for Node<'a> {
+        impl AsNodeRef for Node<'_> {
             type AsRef<'b> = Node<'b>;
             type List = crate::list::NodeList;
         }
@@ -845,7 +845,7 @@ fn generate_node_enum(
 
     out_file.items.push(parse_quote! {
         // SAFETY: We are returning the inner pointer from as_ptr
-        unsafe impl<'a> AsNodePtr for Node<'a> {
+        unsafe impl AsNodePtr for Node<'_> {
             fn as_ptr(self) -> *mut raw::Node {
                 match self {
                     Self::None => std::ptr::null_mut(),
@@ -903,8 +903,8 @@ fn generate_node_enum(
             pub fn as_ref(&self) -> Node<'_> {
                 match self {
                     Self::None(..) => Node::None,
-                    Self::NodeList(list) => Node::NodeList(&*list),
-                    #(Self::#node_names(n) => Node::#node_names(&*n),)*
+                    Self::NodeList(list) => Node::NodeList(list),
+                    #(Self::#node_names(n) => Node::#node_names(n),)*
                     // SAFETY: This was always constructed with a valid pointer
                     Self::Invalid(ptr, _) => Node::Invalid(unsafe { (*ptr).as_ref() }.unwrap())
                 }
@@ -976,7 +976,7 @@ fn generate_make_funcs(
         .filter_map(|f| {
             let fname = f.sig.ident.to_string();
             if fname.starts_with("make")
-                && let Some(s) = node_structs.iter().find(|s| s.name == &fname[4..])
+                && let Some(s) = node_structs.iter().find(|s| s.name == fname[4..])
             {
                 Some((s, f))
             } else {
