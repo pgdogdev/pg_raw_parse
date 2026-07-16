@@ -137,3 +137,27 @@ fn test_debug_output() {
 )"#;
     pretty_assertions::assert_eq!(expected, format!("{:#?}", stmt));
 }
+
+#[test]
+fn test_create_stmt_table_elts_allows_constraints() {
+    let result = crate::parse(
+        "CREATE TABLE users (
+            id bigint NOT NULL,
+            name text,
+            PRIMARY KEY (id)
+        )",
+    )
+    .unwrap();
+
+    let stmt = result.stmts().next().unwrap();
+    let create = match stmt {
+        crate::Node::CreateStmt(stmt) => stmt,
+        other => panic!("expected CreateStmt, got {other:?}"),
+    };
+
+    let table_elts = create.table_elts().iter().collect::<Vec<_>>();
+
+    assert!(matches!(table_elts[0], crate::Node::ColumnDef(_)));
+    assert!(matches!(table_elts[1], crate::Node::ColumnDef(_)));
+    assert!(matches!(table_elts[2], crate::Node::Constraint(_)));
+}
