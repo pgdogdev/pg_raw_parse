@@ -1316,6 +1316,13 @@ fn build_node_struct(s: &syn::ItemStruct, type_comment_regex: &Regex) -> NodeStr
         // and ColumnRef for MINVALUE/MAXVALUE, not only PartitionRangeDatum.
         (("PartitionBoundSpec", "lowerdatums"), NodeFieldType::List),
         (("PartitionBoundSpec", "upperdatums"), NodeFieldType::List),
+        // The raw parser stores text-search token types as Integer nodes, not
+        // String nodes, and dicts is a nested list of qualified names.
+        (
+            ("AlterTSConfigurationStmt", "tokentype"),
+            NodeFieldType::List,
+        ),
+        (("AlterTSConfigurationStmt", "dicts"), NodeFieldType::List),
     ];
 
     let attrs = clean_doc_comments(&s.attrs);

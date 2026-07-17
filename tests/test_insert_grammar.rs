@@ -77,9 +77,15 @@ fn insert_returning_variations() {
         "INSERT INTO users DEFAULT VALUES RETURNING *",
         "INSERT INTO users (id) VALUES (1) RETURNING id",
         "INSERT INTO users (id) VALUES (1) RETURNING id AS inserted_id, email new_email",
+        "INSERT INTO users (id) VALUES (1) RETURNING WITH (OLD AS old_row) id",
+        "INSERT INTO users (id) VALUES (1) RETURNING WITH (NEW AS new_row) new_row.id",
+        "INSERT INTO users (id) VALUES (1) ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id RETURNING WITH (OLD AS old_row, NEW AS new_row) old_row.id AS old_id, new_row.id AS new_id",
     ]);
 }
 
+// Command:     INSERT
+// Description: create new rows in a table
+// Syntax:
 // [ WITH [ RECURSIVE ] with_query [, ...] ]
 // INSERT INTO table_name [ AS alias ] [ ( column_name [, ...] ) ]
 //     [ OVERRIDING { SYSTEM | USER } VALUE ]
@@ -101,3 +107,5 @@ fn insert_returning_variations() {
 //                     ( column_name [, ...] ) = ( sub-SELECT )
 //                   } [, ...]
 //               [ WHERE condition ]
+//
+// URL: https://www.postgresql.org/docs/18/sql-insert.html

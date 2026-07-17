@@ -16,7 +16,9 @@ fn select_clause_variations() {
         "SELECT id FROM users WHERE active AND age >= 18",
         "SELECT department, count(*) FROM employees GROUP BY department HAVING count(*) > 1",
         "SELECT sum(salary) OVER w FROM employees WINDOW w AS (PARTITION BY department ORDER BY hired_at)",
+        "SELECT sum(salary) OVER w, avg(salary) OVER v FROM employees WINDOW w AS (PARTITION BY department), v AS (ORDER BY hired_at)",
         "SELECT id FROM users ORDER BY created_at ASC NULLS LAST, id DESC NULLS FIRST",
+        "SELECT id FROM users ORDER BY created_at NULLS FIRST",
         "SELECT id FROM users ORDER BY name USING < NULLS FIRST",
         "SELECT id FROM users LIMIT 10",
         "SELECT id FROM users LIMIT ALL",
@@ -26,6 +28,7 @@ fn select_clause_variations() {
         "SELECT id FROM users FETCH FIRST ROW ONLY",
         "SELECT id FROM users FETCH FIRST 10 ROWS ONLY",
         "SELECT id FROM users FETCH NEXT 10 ROW ONLY",
+        "SELECT id FROM users FETCH NEXT ROWS ONLY",
         "SELECT id FROM users ORDER BY id FETCH NEXT 10 ROWS WITH TIES",
         "SELECT id FROM users ORDER BY id FETCH NEXT ROW WITH TIES",
         "SELECT id FROM users WHERE active GROUP BY id HAVING count(*) > 0 WINDOW w AS (ORDER BY id) ORDER BY id LIMIT 5 OFFSET 1 ROWS",
@@ -79,6 +82,7 @@ fn from_item_variations() {
         "SELECT * FROM json_to_record('{\"a\":1}') x(a int)",
         "SELECT * FROM LATERAL json_to_record('{\"a\":1}') AS (a int)",
         "SELECT * FROM ROWS FROM (generate_series(1, 3), generate_series(4, 6))",
+        "SELECT * FROM ROWS FROM (json_to_record('{\"a\":1}') AS (a int))",
         "SELECT * FROM LATERAL ROWS FROM (generate_series(1, 3)) AS r(n)",
         "SELECT * FROM ROWS FROM (json_to_record('{\"a\":1}') AS (a int), generate_series(1, 3)) WITH ORDINALITY AS r(a, b, ordinality)",
         "SELECT * FROM users JOIN orders ON users.id = orders.user_id",
@@ -177,8 +181,9 @@ fn parameter_variations() {
     ]);
 }
 
-// SELECT grammar:
-//
+// Command:     SELECT
+// Description: retrieve rows from a table or view
+// Syntax:
 // [ WITH [ RECURSIVE ] with_query [, ...] ]
 // SELECT [ ALL | DISTINCT [ ON ( expression [, ...] ) ] ]
 //     [ { * | expression [ [ AS ] output_name ] } [, ...] ]
@@ -227,3 +232,4 @@ fn parameter_variations() {
 
 // TABLE [ ONLY ] table_name [ * ]
 //
+// URL: https://www.postgresql.org/docs/18/sql-select.html
