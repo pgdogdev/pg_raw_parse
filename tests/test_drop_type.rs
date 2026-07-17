@@ -2,13 +2,6 @@ mod common;
 
 use common::run_parse_debug_cases as run_cases;
 
-// Command:     DROP TYPE
-// Description: remove a data type
-// Syntax:
-// DROP TYPE [ IF EXISTS ] name [, ...] [ CASCADE | RESTRICT ]
-//
-// URL: https://www.postgresql.org/docs/18/sql-droptype.html
-
 #[test]
 fn drop_type_parses() {
     run_cases(&[

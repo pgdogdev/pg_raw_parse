@@ -2,30 +2,6 @@ mod common;
 
 use common::run_parse_debug_cases as run_cases;
 
-// Command:     CREATE DATABASE
-// Description: create a new database
-// Syntax:
-// CREATE DATABASE name
-//     [ WITH ] [ OWNER [=] user_name ]
-//            [ TEMPLATE [=] template ]
-//            [ ENCODING [=] encoding ]
-//            [ STRATEGY [=] strategy ]
-//            [ LOCALE [=] locale ]
-//            [ LC_COLLATE [=] lc_collate ]
-//            [ LC_CTYPE [=] lc_ctype ]
-//            [ BUILTIN_LOCALE [=] builtin_locale ]
-//            [ ICU_LOCALE [=] icu_locale ]
-//            [ ICU_RULES [=] icu_rules ]
-//            [ LOCALE_PROVIDER [=] locale_provider ]
-//            [ COLLATION_VERSION = collation_version ]
-//            [ TABLESPACE [=] tablespace_name ]
-//            [ ALLOW_CONNECTIONS [=] allowconn ]
-//            [ CONNECTION LIMIT [=] connlimit ]
-//            [ IS_TEMPLATE [=] istemplate ]
-//            [ OID [=] oid ]
-//
-// URL: https://www.postgresql.org/docs/18/sql-createdatabase.html
-
 #[test]
 fn create_database_parses() {
     run_cases(&[

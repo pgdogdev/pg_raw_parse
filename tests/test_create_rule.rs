@@ -2,19 +2,6 @@ mod common;
 
 use common::run_parse_debug_cases as run_cases;
 
-// Command:     CREATE RULE
-// Description: define a new rewrite rule
-// Syntax:
-// CREATE [ OR REPLACE ] RULE name AS ON event
-//     TO table_name [ WHERE condition ]
-//     DO [ ALSO | INSTEAD ] { NOTHING | command | ( command ; command ... ) }
-//
-// where event can be one of:
-//
-//     SELECT | INSERT | UPDATE | DELETE
-//
-// URL: https://www.postgresql.org/docs/18/sql-createrule.html
-
 #[test]
 fn create_rule_parses() {
     run_cases(&[

@@ -2,15 +2,6 @@ mod common;
 
 use common::run_parse_debug_cases as run_cases;
 
-// Command:     CREATE SERVER
-// Description: define a new foreign server
-// Syntax:
-// CREATE SERVER [ IF NOT EXISTS ] server_name [ TYPE 'server_type' ] [ VERSION 'server_version' ]
-//     FOREIGN DATA WRAPPER fdw_name
-//     [ OPTIONS ( option 'value' [, ... ] ) ]
-//
-// URL: https://www.postgresql.org/docs/18/sql-createserver.html
-
 #[test]
 fn create_server_parses() {
     run_cases(&[

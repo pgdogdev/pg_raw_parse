@@ -2,32 +2,6 @@ mod common;
 
 use common::run_parse_debug_cases as run_cases;
 
-// Command:     ALTER PUBLICATION
-// Description: change the definition of a publication
-// Syntax:
-// ALTER PUBLICATION name ADD publication_object [, ...]
-// ALTER PUBLICATION name SET publication_object [, ...]
-// ALTER PUBLICATION name DROP publication_drop_object [, ...]
-// ALTER PUBLICATION name SET ( publication_parameter [= value] [, ... ] )
-// ALTER PUBLICATION name OWNER TO { new_owner | CURRENT_ROLE | CURRENT_USER | SESSION_USER }
-// ALTER PUBLICATION name RENAME TO new_name
-//
-// where publication_object is one of:
-//
-//     TABLE table_and_columns [, ... ]
-//     TABLES IN SCHEMA { schema_name | CURRENT_SCHEMA } [, ... ]
-//
-// and publication_drop_object is one of:
-//
-//     TABLE [ ONLY ] table_name [ * ] [, ... ]
-//     TABLES IN SCHEMA { schema_name | CURRENT_SCHEMA } [, ... ]
-//
-// and table_and_columns is:
-//
-//     [ ONLY ] table_name [ * ] [ ( column_name [, ... ] ) ] [ WHERE ( expression ) ]
-//
-// URL: https://www.postgresql.org/docs/18/sql-alterpublication.html
-
 #[test]
 fn alter_publication_parses() {
     run_cases(&[

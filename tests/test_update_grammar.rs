@@ -69,19 +69,3 @@ fn update_returning_variations() {
         "UPDATE users SET active = true RETURNING WITH (OLD AS old_row, NEW AS new_row) old_row.active AS was_active, new_row.active AS is_active",
     ]);
 }
-
-// Command:     UPDATE
-// Description: update rows of a table
-// Syntax:
-// [ WITH [ RECURSIVE ] with_query [, ...] ]
-// UPDATE [ ONLY ] table_name [ * ] [ [ AS ] alias ]
-//     SET { column_name = { expression | DEFAULT } |
-//           ( column_name [, ...] ) = [ ROW ] ( { expression | DEFAULT } [, ...] ) |
-//           ( column_name [, ...] ) = ( sub-SELECT )
-//         } [, ...]
-//     [ FROM from_item [, ...] ]
-//     [ WHERE condition | WHERE CURRENT OF cursor_name ]
-//     [ RETURNING [ WITH ( { OLD | NEW } AS output_alias [, ...] ) ]
-//                 { * | output_expression [ [ AS ] output_name ] } [, ...] ]
-//
-// URL: https://www.postgresql.org/docs/18/sql-update.html

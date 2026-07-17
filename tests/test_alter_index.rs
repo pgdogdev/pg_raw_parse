@@ -2,22 +2,6 @@ mod common;
 
 use common::run_parse_debug_cases as run_cases;
 
-// Command:     ALTER INDEX
-// Description: change the definition of an index
-// Syntax:
-// ALTER INDEX [ IF EXISTS ] name RENAME TO new_name
-// ALTER INDEX [ IF EXISTS ] name SET TABLESPACE tablespace_name
-// ALTER INDEX name ATTACH PARTITION index_name
-// ALTER INDEX name [ NO ] DEPENDS ON EXTENSION extension_name
-// ALTER INDEX [ IF EXISTS ] name SET ( storage_parameter [= value] [, ... ] )
-// ALTER INDEX [ IF EXISTS ] name RESET ( storage_parameter [, ... ] )
-// ALTER INDEX [ IF EXISTS ] name ALTER [ COLUMN ] column_number
-//     SET STATISTICS integer
-// ALTER INDEX ALL IN TABLESPACE name [ OWNED BY role_name [, ... ] ]
-//     SET TABLESPACE new_tablespace [ NOWAIT ]
-//
-// URL: https://www.postgresql.org/docs/18/sql-alterindex.html
-
 #[test]
 fn alter_index_parses() {
     run_cases(&[

@@ -2,13 +2,6 @@ mod common;
 
 use common::run_parse_debug_cases as run_cases;
 
-// Command:     DROP GROUP
-// Description: remove a database role
-// Syntax:
-// DROP GROUP [ IF EXISTS ] name [, ...]
-//
-// URL: https://www.postgresql.org/docs/18/sql-dropgroup.html
-
 #[test]
 fn drop_group_parses() {
     run_cases(&[

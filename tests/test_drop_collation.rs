@@ -2,13 +2,6 @@ mod common;
 
 use common::run_parse_debug_cases as run_cases;
 
-// Command:     DROP COLLATION
-// Description: remove a collation
-// Syntax:
-// DROP COLLATION [ IF EXISTS ] name [ CASCADE | RESTRICT ]
-//
-// URL: https://www.postgresql.org/docs/18/sql-dropcollation.html
-
 #[test]
 fn drop_collation_parses() {
     run_cases(&[

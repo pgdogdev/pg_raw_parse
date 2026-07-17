@@ -57,15 +57,3 @@ fn delete_returning_variations() {
         "DELETE FROM users RETURNING WITH (OLD AS old_row, NEW AS new_row) old_row.id AS old_id, new_row.id AS new_id",
     ]);
 }
-
-// Command:     DELETE
-// Description: delete rows of a table
-// Syntax:
-// [ WITH [ RECURSIVE ] with_query [, ...] ]
-// DELETE FROM [ ONLY ] table_name [ * ] [ [ AS ] alias ]
-//     [ USING from_item [, ...] ]
-//     [ WHERE condition | WHERE CURRENT OF cursor_name ]
-//     [ RETURNING [ WITH ( { OLD | NEW } AS output_alias [, ...] ) ]
-//                 { * | output_expression [ [ AS ] output_name ] } [, ...] ]
-//
-// URL: https://www.postgresql.org/docs/18/sql-delete.html

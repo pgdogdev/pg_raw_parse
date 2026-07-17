@@ -3,25 +3,6 @@ mod common;
 use common::run_parse_debug_case as run_case;
 use pg_raw_parse::{Node, parse};
 
-// Command:     ALTER TEXT SEARCH CONFIGURATION
-// Description: change the definition of a text search configuration
-// Syntax:
-// ALTER TEXT SEARCH CONFIGURATION name
-//     ADD MAPPING FOR token_type [, ... ] WITH dictionary_name [, ... ]
-// ALTER TEXT SEARCH CONFIGURATION name
-//     ALTER MAPPING FOR token_type [, ... ] WITH dictionary_name [, ... ]
-// ALTER TEXT SEARCH CONFIGURATION name
-//     ALTER MAPPING REPLACE old_dictionary WITH new_dictionary
-// ALTER TEXT SEARCH CONFIGURATION name
-//     ALTER MAPPING FOR token_type [, ... ] REPLACE old_dictionary WITH new_dictionary
-// ALTER TEXT SEARCH CONFIGURATION name
-//     DROP MAPPING [ IF EXISTS ] FOR token_type [, ... ]
-// ALTER TEXT SEARCH CONFIGURATION name RENAME TO new_name
-// ALTER TEXT SEARCH CONFIGURATION name OWNER TO { new_owner | CURRENT_ROLE | CURRENT_USER | SESSION_USER }
-// ALTER TEXT SEARCH CONFIGURATION name SET SCHEMA new_schema
-//
-// URL: https://www.postgresql.org/docs/18/sql-altertsconfig.html
-
 #[test]
 fn alter_text_search_configuration_add_mapping() {
     run_case(r#"ALTER TEXT SEARCH CONFIGURATION my_config ADD MAPPING FOR asciiword WITH simple"#);

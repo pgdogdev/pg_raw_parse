@@ -2,18 +2,6 @@ mod common;
 
 use common::run_parse_debug_cases as run_cases;
 
-// Command:     ALTER FOREIGN DATA WRAPPER
-// Description: change the definition of a foreign-data wrapper
-// Syntax:
-// ALTER FOREIGN DATA WRAPPER name
-//     [ HANDLER handler_function | NO HANDLER ]
-//     [ VALIDATOR validator_function | NO VALIDATOR ]
-//     [ OPTIONS ( [ ADD | SET | DROP ] option ['value'] [, ... ]) ]
-// ALTER FOREIGN DATA WRAPPER name OWNER TO { new_owner | CURRENT_ROLE | CURRENT_USER | SESSION_USER }
-// ALTER FOREIGN DATA WRAPPER name RENAME TO new_name
-//
-// URL: https://www.postgresql.org/docs/18/sql-alterforeigndatawrapper.html
-
 #[test]
 fn alter_foreign_data_wrapper_parses() {
     run_cases(&[

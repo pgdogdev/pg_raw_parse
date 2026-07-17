@@ -2,20 +2,6 @@ mod common;
 
 use common::run_parse_debug_cases as run_cases;
 
-// Command:     REINDEX
-// Description: rebuild indexes
-// Syntax:
-// REINDEX [ ( option [, ...] ) ] { INDEX | TABLE | SCHEMA } [ CONCURRENTLY ] name
-// REINDEX [ ( option [, ...] ) ] { DATABASE | SYSTEM } [ CONCURRENTLY ] [ name ]
-//
-// where option can be one of:
-//
-//     CONCURRENTLY [ boolean ]
-//     TABLESPACE new_tablespace
-//     VERBOSE [ boolean ]
-//
-// URL: https://www.postgresql.org/docs/18/sql-reindex.html
-
 #[test]
 fn reindex_parses() {
     run_cases(&[

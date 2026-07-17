@@ -2,37 +2,6 @@ mod common;
 
 use common::run_parse_debug_cases as run_cases;
 
-// Command:     ALTER FUNCTION
-// Description: change the definition of a function
-// Syntax:
-// ALTER FUNCTION name [ ( [ [ argmode ] [ argname ] argtype [, ...] ] ) ]
-//     action [ ... ] [ RESTRICT ]
-// ALTER FUNCTION name [ ( [ [ argmode ] [ argname ] argtype [, ...] ] ) ]
-//     RENAME TO new_name
-// ALTER FUNCTION name [ ( [ [ argmode ] [ argname ] argtype [, ...] ] ) ]
-//     OWNER TO { new_owner | CURRENT_ROLE | CURRENT_USER | SESSION_USER }
-// ALTER FUNCTION name [ ( [ [ argmode ] [ argname ] argtype [, ...] ] ) ]
-//     SET SCHEMA new_schema
-// ALTER FUNCTION name [ ( [ [ argmode ] [ argname ] argtype [, ...] ] ) ]
-//     [ NO ] DEPENDS ON EXTENSION extension_name
-//
-// where action is one of:
-//
-//     CALLED ON NULL INPUT | RETURNS NULL ON NULL INPUT | STRICT
-//     IMMUTABLE | STABLE | VOLATILE
-//     [ NOT ] LEAKPROOF
-//     [ EXTERNAL ] SECURITY INVOKER | [ EXTERNAL ] SECURITY DEFINER
-//     PARALLEL { UNSAFE | RESTRICTED | SAFE }
-//     COST execution_cost
-//     ROWS result_rows
-//     SUPPORT support_function
-//     SET configuration_parameter { TO | = } { value | DEFAULT }
-//     SET configuration_parameter FROM CURRENT
-//     RESET configuration_parameter
-//     RESET ALL
-//
-// URL: https://www.postgresql.org/docs/18/sql-alterfunction.html
-
 #[test]
 fn alter_function_parses() {
     run_cases(&[
