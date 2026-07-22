@@ -129,8 +129,6 @@ fn main() {
         .allowlist_item("list_concat")
         .allowlist_item("wrapped_copy_object")
         .allowlist_item("newNode")
-        .allowlist_item("pg_query_normalize")
-        .allowlist_item("pg_query_free_normalize_result")
         .wrap_static_fns(true)
         .wrap_static_fns_path(out_dir.join("wrap_static_fns"));
     for struct_name in &node_structs {
