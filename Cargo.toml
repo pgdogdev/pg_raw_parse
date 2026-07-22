@@ -3,6 +3,9 @@ name = "pg_raw_parse"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
+description = "The SQL parser powering pgdog.dev"
+homepage = "https://pgdog.dev"
+repository = "https://github.com/pgdogdev/pg_raw_parse"
 
 [features]
 # Enables compile-time checks to verify that our enums are actually layout
