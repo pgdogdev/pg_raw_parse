@@ -2,6 +2,7 @@
 name = "pg_raw_parse"
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
 
 [features]
 # Enables compile-time checks to verify that our enums are actually layout

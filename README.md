@@ -18,3 +18,12 @@ one-size-fits-all solution to PostgreSQL ASTs.  Contributions are welcome, but
 pull requests adding large and complex features are unlikely to be accepted
 unless they align with PgDog's needs. For a more general purpose library,
 consider [pg\_query.rs](https://github.com/pganalyze/pg_query.rs).
+
+## License
+
+Licensed under either of these:
+
+ * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or
+   https://www.apache.org/licenses/LICENSE-2.0)
+ * MIT license ([LICENSE-MIT](LICENSE-MIT) or
+   https://opensource.org/licenses/MIT)
