@@ -115,11 +115,11 @@ fn main() {
         .allowlist_item("pg_query_free_error")
         .allowlist_item("pg_query_raw_parse")
         .allowlist_item("PgQueryParseMode")
+        .allowlist_item("PgQuerySplitResult")
+        .allowlist_item("PgQuerySplitStmt")
+        .allowlist_item("pg_query_split_with_scanner")
+        .allowlist_item("pg_query_free_split_result")
         .allowlist_item("wrapped_raw_expression_tree_walker_impl")
-        .override_abi(
-            bindgen::Abi::CUnwind,
-            "wrapped_raw_expression_tree_walker_impl",
-        )
         .allowlist_item("StringInfo")
         .allowlist_item("wrapped_raw_deparse")
         .allowlist_item("wrapped_pnstrdup")
@@ -146,6 +146,10 @@ fn main() {
         .unwrap();
 
     let mut build = cc::Build::new();
+    println!("cargo:rerun-if-env-changed=PG_RAW_PARSE_USE_VALGRIND");
+    if env::var_os("PG_RAW_PARSE_USE_VALGRIND").is_some() {
+        build.define("USE_VALGRIND", None);
+    }
     build
         .files(glob("libpg_query/src/*.c").unwrap().map(Result::unwrap))
         .files(
