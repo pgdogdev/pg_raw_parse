@@ -120,6 +120,10 @@ fn main() {
         .allowlist_item("pg_query_split_with_scanner")
         .allowlist_item("pg_query_free_split_result")
         .allowlist_item("wrapped_raw_expression_tree_walker_impl")
+        .override_abi(
+            bindgen::Abi::CUnwind,
+            "wrapped_raw_expression_tree_walker_impl",
+        )
         .allowlist_item("StringInfo")
         .allowlist_item("wrapped_raw_deparse")
         .allowlist_item("wrapped_pnstrdup")
