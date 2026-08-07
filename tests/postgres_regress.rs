@@ -257,6 +257,8 @@ fn postgres_regression_sql_parses_and_round_trips() {
             };
             parsed += 1;
 
+            let _ = format!("{tree:?}");
+
             let deparsed = deparse_stmts(tree.stmts()).unwrap_or_else(|error| {
                 panic!(
                     "failed to deparse {} at byte {location}: {error}\n{query}",

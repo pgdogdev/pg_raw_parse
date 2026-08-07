@@ -1313,6 +1313,12 @@ fn build_node_struct(s: &syn::ItemStruct, type_comment_regex: &Regex) -> NodeStr
         // Despite the "list of ColumnDef nodes" comment, tableElts also
         // contains table-level Constraint nodes.
         (("CreateStmt", "table_elts"), NodeFieldType::List),
+        // Grant targets vary with objtype: they can be RangeVar,
+        // ObjectWithArgs, or String nodes.
+        (("GrantStmt", "objects"), NodeFieldType::List),
+        // The raw grammar accepts a general FROM list here; semantic analysis
+        // later restricts it to a single table.
+        (("CreateStatsStmt", "relations"), NodeFieldType::List),
         // Comment claims args is A_Const, but that isn't the case for
         // `SET TRANSACTION ...`
         (("VariableSetStmt", "args"), NodeFieldType::List),
