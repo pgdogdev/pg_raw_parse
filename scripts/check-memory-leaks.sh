@@ -36,6 +36,7 @@ exec valgrind \
   --error-exitcode=1 \
   --num-callers=40 \
   --suppressions="$workspace_root/libpg_query/test/valgrind.supp" \
+  --suppressions="$workspace_root/scripts/valgrind.supp" \
   "$test_binary" \
   --exact postgres_regression_sql_parses_and_round_trips \
   --nocapture
