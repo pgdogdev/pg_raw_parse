@@ -135,6 +135,8 @@ fn main() {
         .allowlist_item("newNode")
         .allowlist_item("pg_query_normalize")
         .allowlist_item("pg_query_free_normalize_result")
+        .allowlist_var("PG_VERSION")
+        .allowlist_var("PG_VERSION_NUM")
         .wrap_static_fns(true)
         .wrap_static_fns_path(out_dir.join("wrap_static_fns"));
     for struct_name in &node_structs {
