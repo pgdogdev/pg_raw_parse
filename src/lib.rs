@@ -30,9 +30,9 @@ pub const POSTGRES_VERSION_NUM: u32 = raw::PG_VERSION_NUM;
 /// Returns the PostgreSQL version whose parser sources are used by this crate.
 pub fn postgres_version() -> &'static str {
     CStr::from_bytes_with_nul(raw::PG_VERSION)
-        .expect("bindgen generated PG_VERSION without a trailing NUL")
+        .expect("generated PG_VERSION without a trailing NUL")
         .to_str()
-        .expect("bindgen generated a non-UTF-8 PG_VERSION")
+        .expect("generated a non-UTF-8 PG_VERSION")
 }
 
 pub(crate) use node_ptr::{
