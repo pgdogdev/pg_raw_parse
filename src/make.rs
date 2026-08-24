@@ -2,11 +2,12 @@ use crate::list::{CastNodeList, NodeList};
 use crate::mem::MemoryContext;
 use crate::raw::{self, *};
 use crate::{
-    AsNodePtr, ConstValue, ConstructableNode, FromNodeMut, FromNodePtr, Node, Owned, nodes,
+    AsNodePtr, ConstValue, ConstructableNode, Error, FromNodeMut, FromNodePtr, Node, Owned, Result,
+    StmtList, nodes,
 };
 use generativity::Id;
 use std::any::type_name;
-use std::ffi::{c_char, c_int};
+use std::ffi::{CString, c_char, c_int};
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::ptr;
@@ -45,6 +46,32 @@ pub struct MemoryToken<'mem> {
 }
 
 impl<'mem> MemoryToken<'mem> {
+    /// Parse the given `sql` into a new AST on this memory context.
+    ///
+    /// This function can be used if you need to parse and then immediately
+    /// modify an AST, without copying it. If you only need to parse an AST,
+    /// use [`crate::parse`]
+    pub fn parse(self, sql: &str) -> Result<Unique<'mem, &'mem StmtList>> {
+        let cstring = CString::new(sql).map_err(Error::StatementContainedNul)?;
+        // SAFETY: we never panic within the provided block
+        let c_result = unsafe {
+            self.mem.within(|| {
+                raw::pg_query_raw_parse(
+                    cstring.as_ptr(),
+                    raw::PgQueryParseMode::PG_QUERY_PARSE_DEFAULT as _,
+                )
+            })
+        };
+        if !c_result.stderr_buffer.is_null() {
+            // SAFETY: libpg_query documents that the caller must free this.
+            unsafe { libc::free(c_result.stderr_buffer as _) };
+        }
+        match ptr::NonNull::new(c_result.error) {
+            Some(e) => Err(Error::from_pg_query_error(e)),
+            None => Ok(Unique(c_result.tree.cast(), self.id, PhantomData)),
+        }
+    }
+
     pub fn make_a_const(self, val: ConstValue<'_>) -> Unique<'mem, &'mem nodes::A_Const> {
         let mut node = self.make_node::<nodes::A_Const>();
         node.as_mut().set_isnull(false);
@@ -108,6 +135,12 @@ impl<'mem> MemoryToken<'mem> {
         let mut raw_stmt = self.make_node::<nodes::RawStmt>();
         raw_stmt.as_mut().set_stmt(stmt);
         raw_stmt
+    }
+
+    pub fn make_returning_clause(self, exprs: Unique<'mem, &NodeList>) -> Unique<'mem, &'mem nodes::ReturningClause> {
+        let mut return_clause = self.make_node::<nodes::ReturningClause>();
+        return_clause.as_mut().set_exprs(exprs);
+        return_clause
     }
 
     pub fn make_res_target(

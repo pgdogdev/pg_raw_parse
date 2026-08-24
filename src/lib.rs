@@ -1,5 +1,5 @@
 #![cfg_attr(feature = "field_offset_assertions", feature(offset_of_enum))]
-use std::{ffi, fmt, ops, ptr};
+use std::{ffi::CStr, fmt, ops};
 
 pub mod const_val;
 mod deparse;
@@ -24,41 +24,30 @@ pub use crate::error::{Error, Result};
 pub use crate::node_enum::{Node, NodeMut};
 pub use crate::owned::Owned;
 
+/// PostgreSQL version number whose parser sources are used by this crate.
+pub const POSTGRES_VERSION_NUM: u32 = raw::PG_VERSION_NUM;
+
+/// Returns the PostgreSQL version whose parser sources are used by this crate.
+pub fn postgres_version() -> &'static str {
+    CStr::from_bytes_with_nul(raw::PG_VERSION)
+        .expect("generated PG_VERSION without a trailing NUL")
+        .to_str()
+        .expect("generated a non-UTF-8 PG_VERSION")
+}
+
 pub(crate) use node_ptr::{
     AsNodePtr, AsNodeRef, ConstructableNode, FromNodeMut, FromNodePtr, List,
 };
 
 pub fn parse(sql: &str) -> Result<ParseResult, error::Error> {
-    let mem = mem::MemoryContext::new(c"pg_raw_parse");
-    let cstring = ffi::CString::new(sql).map_err(error::Error::StatementContainedNul)?;
-    // SAFETY: we never panic within the provided block
-    let c_result = unsafe {
-        mem.within(|| {
-            raw::pg_query_raw_parse(
-                cstring.as_ptr(),
-                raw::PgQueryParseMode::PG_QUERY_PARSE_DEFAULT as _,
-            )
-        })
-    };
-    // Any warnings that were emitted during parsing went into a malloc'd
-    // buffer, so we need to construct this even if we're going to return Err
-    // to ensure that buffer is freed.
-    let warnings = Warnings {
-        stderr_buffer: ptr::NonNull::new(c_result.stderr_buffer),
-    };
-    match ptr::NonNull::new(c_result.error) {
-        Some(e) => Err(Error::from_pg_query_error(e)),
-        None => Ok(ParseResult {
-            _warnings: warnings,
-            tree: Owned::new(mem, c_result.tree.cast()),
-        }),
-    }
+    Ok(ParseResult {
+        tree: make::try_owned(|mem| mem.parse(sql))?,
+    })
 }
 
 pub type StmtList = list::CastNodeList<nodes::RawStmt>;
 
 pub struct ParseResult {
-    _warnings: Warnings,
     tree: Owned<StmtList>,
 }
 
@@ -86,19 +75,19 @@ impl fmt::Debug for ParseResult {
     }
 }
 
-struct Warnings {
-    stderr_buffer: Option<ptr::NonNull<ffi::c_char>>,
-}
+#[cfg(test)]
+mod tests {
+    use super::{POSTGRES_VERSION_NUM, postgres_version};
 
-impl Drop for Warnings {
-    fn drop(&mut self) {
-        // tree was created with palloc, so is managed by postgres.
-        // stderr_buffer was malloc'd and must be freed
-        // SAFETY: libpg_query documents that the caller must free this.
-        unsafe {
-            if let Some(ptr) = self.stderr_buffer.take() {
-                libc::free(ptr.as_ptr() as _);
-            }
-        }
+    #[test]
+    fn postgres_version_constants_are_consistent() {
+        let mut components = postgres_version()
+            .split('.')
+            .map(|component| component.parse::<u32>().unwrap());
+        let major = components.next().unwrap();
+        let minor = components.next().unwrap();
+
+        assert_eq!(POSTGRES_VERSION_NUM, major * 10_000 + minor);
+        assert!(components.next().is_none());
     }
 }

@@ -115,6 +115,10 @@ fn main() {
         .allowlist_item("pg_query_free_error")
         .allowlist_item("pg_query_raw_parse")
         .allowlist_item("PgQueryParseMode")
+        .allowlist_item("PgQuerySplitResult")
+        .allowlist_item("PgQuerySplitStmt")
+        .allowlist_item("pg_query_split_with_scanner")
+        .allowlist_item("pg_query_free_split_result")
         .allowlist_item("wrapped_raw_expression_tree_walker_impl")
         .override_abi(
             bindgen::Abi::CUnwind,
@@ -129,6 +133,8 @@ fn main() {
         .allowlist_item("list_concat")
         .allowlist_item("wrapped_copy_object")
         .allowlist_item("newNode")
+        .allowlist_var("PG_VERSION")
+        .allowlist_var("PG_VERSION_NUM")
         .wrap_static_fns(true)
         .wrap_static_fns_path(out_dir.join("wrap_static_fns"));
     for struct_name in &node_structs {
@@ -144,6 +150,10 @@ fn main() {
         .unwrap();
 
     let mut build = cc::Build::new();
+    println!("cargo:rerun-if-env-changed=PG_RAW_PARSE_USE_VALGRIND");
+    if env::var_os("PG_RAW_PARSE_USE_VALGRIND").is_some() {
+        build.define("USE_VALGRIND", None);
+    }
     build
         .files(glob("libpg_query/src/*.c").unwrap().map(Result::unwrap))
         .files(
@@ -264,7 +274,7 @@ impl NodeField {
 
         let fname = &self.name;
         let func_name = syn::Ident::new(&format!("{fname}_mut"), fname.span());
-        let inner = &self.ty(&mem);
+        let inner = &self.ty(mem);
         match &self.ty {
             // No reason to provide for these, user can just `&mut node.field`
             Private(_) | Primitive(_) | PrimitiveSkipConstructor(_) => None,
@@ -293,7 +303,7 @@ impl NodeField {
     fn setter_method(&self, self_expr: syn::Expr, mem: &syn::Lifetime) -> Option<syn::ImplItem> {
         let fname = &self.name;
         let func_name = syn::Ident::new(&format!("set_{}", fname), fname.span());
-        let ty = self.setter_ty(&mem)?;
+        let ty = self.setter_ty(mem)?;
         let set_expr = self.setter_expr();
         Some(parse_quote! {
             #[inline]
@@ -662,7 +672,7 @@ fn generate_node_structs(
         });
 
         out_file.items.push(parse_quote! {
-            impl<'a> crate::FromNodePtr for &'a #sname {
+            impl crate::FromNodePtr for &#sname {
                 unsafe fn from_ptr(tag: NodeTag::Type, ptr: Option<NonNull<Node>>) -> Self {
                     #sname::check_tag(tag);
                     let p = ptr.expect("Unexpected NULL ptr").cast();
@@ -704,7 +714,7 @@ fn generate_node_structs(
 
         out_file.items.push(parse_quote! {
             // SAFETY: Self is a type of node
-            unsafe impl<'a> crate::AsNodePtr for &'a #sname {
+            unsafe impl crate::AsNodePtr for &#sname {
                 fn as_ptr(self) -> *mut Node {
                     std::ptr::from_ref(self).cast_mut().cast()
                 }
@@ -761,7 +771,7 @@ fn generate_node_structs(
                 type Target = #sname;
 
                 fn deref(&self) -> &Self::Target {
-                    &*self.mut_ref
+                    self.mut_ref
                 }
             }
         });
@@ -809,7 +819,7 @@ fn generate_node_enum(
     });
 
     out_file.items.push(parse_quote! {
-        impl<'a> FromNodePtr for Node<'a> {
+        impl FromNodePtr for Node<'_> {
             /// SAFETY: The caller is responsible for ensuring the provided
             /// lifetime does not outlast the memory context this Node was
             /// allocated in
@@ -835,7 +845,7 @@ fn generate_node_enum(
     });
 
     out_file.items.push(parse_quote! {
-        impl<'a> AsNodeRef for Node<'a> {
+        impl AsNodeRef for Node<'_> {
             type AsRef<'b> = Node<'b>;
             type List = crate::list::NodeList;
         }
@@ -843,7 +853,7 @@ fn generate_node_enum(
 
     out_file.items.push(parse_quote! {
         // SAFETY: We are returning the inner pointer from as_ptr
-        unsafe impl<'a> AsNodePtr for Node<'a> {
+        unsafe impl AsNodePtr for Node<'_> {
             fn as_ptr(self) -> *mut raw::Node {
                 match self {
                     Self::None => std::ptr::null_mut(),
@@ -901,8 +911,8 @@ fn generate_node_enum(
             pub fn as_ref(&self) -> Node<'_> {
                 match self {
                     Self::None(..) => Node::None,
-                    Self::NodeList(list) => Node::NodeList(&*list),
-                    #(Self::#node_names(n) => Node::#node_names(&*n),)*
+                    Self::NodeList(list) => Node::NodeList(list),
+                    #(Self::#node_names(n) => Node::#node_names(n),)*
                     // SAFETY: This was always constructed with a valid pointer
                     Self::Invalid(ptr, _) => Node::Invalid(unsafe { (*ptr).as_ref() }.unwrap())
                 }
@@ -974,7 +984,7 @@ fn generate_make_funcs(
         .filter_map(|f| {
             let fname = f.sig.ident.to_string();
             if fname.starts_with("make")
-                && let Some(s) = node_structs.iter().find(|s| s.name == &fname[4..])
+                && let Some(s) = node_structs.iter().find(|s| s.name == fname[4..])
             {
                 Some((s, f))
             } else {
@@ -1307,9 +1317,26 @@ fn build_node_struct(s: &syn::ItemStruct, type_comment_regex: &Regex) -> NodeStr
         // Despite the "list of ColumnDef nodes" comment, tableElts also
         // contains table-level Constraint nodes.
         (("CreateStmt", "table_elts"), NodeFieldType::List),
+        // Grant targets vary with objtype: they can be RangeVar,
+        // ObjectWithArgs, or String nodes.
+        (("GrantStmt", "objects"), NodeFieldType::List),
+        // The raw grammar accepts a general FROM list here; semantic analysis
+        // later restricts it to a single table.
+        (("CreateStatsStmt", "relations"), NodeFieldType::List),
         // Comment claims args is A_Const, but that isn't the case for
         // `SET TRANSACTION ...`
         (("VariableSetStmt", "args"), NodeFieldType::List),
+        // Raw range partition bounds can contain A_Const for concrete values
+        // and ColumnRef for MINVALUE/MAXVALUE, not only PartitionRangeDatum.
+        (("PartitionBoundSpec", "lowerdatums"), NodeFieldType::List),
+        (("PartitionBoundSpec", "upperdatums"), NodeFieldType::List),
+        // The raw parser stores text-search token types as Integer nodes, not
+        // String nodes, and dicts is a nested list of qualified names.
+        (
+            ("AlterTSConfigurationStmt", "tokentype"),
+            NodeFieldType::List,
+        ),
+        (("AlterTSConfigurationStmt", "dicts"), NodeFieldType::List),
     ];
 
     let attrs = clean_doc_comments(&s.attrs);

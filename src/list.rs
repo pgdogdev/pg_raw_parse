@@ -14,7 +14,7 @@ pub(crate) const EMPTY_LIST: NodeList = NodeList {
 };
 
 pub const fn empty_list<T>() -> &'static CastNodeList<T> {
-    &EMPTY_LIST.cast::<T>()
+    EMPTY_LIST.cast::<T>()
 }
 
 #[repr(C)]
@@ -352,7 +352,7 @@ where
 }
 
 // SAFETY: We are returning NULL for empty lists, or a valid pointer
-unsafe impl<'a, T> AsNodePtr for &'a CastNodeList<T>
+unsafe impl<T> AsNodePtr for &CastNodeList<T>
 where
     Self: AsNodeRef,
 {
@@ -390,7 +390,7 @@ where
     for<'a> &'a T: AsNodePtr + FromNodePtr,
 {
     type Elem<'a> = &'a T;
-    const EMPTY: &Self = &EMPTY_LIST.cast();
+    const EMPTY: &Self = EMPTY_LIST.cast();
 
     fn len(&self) -> usize {
         self.len()
