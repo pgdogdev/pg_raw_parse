@@ -137,6 +137,12 @@ impl<'mem> MemoryToken<'mem> {
         raw_stmt
     }
 
+    pub fn make_returning_clause(self, exprs: Unique<'mem, &NodeList>) -> Unique<'mem, &'mem nodes::ReturningClause> {
+        let mut return_clause = self.make_node::<nodes::ReturningClause>();
+        return_clause.as_mut().set_exprs(exprs);
+        return_clause
+    }
+
     pub fn make_res_target(
         self,
         name: Option<&str>,
