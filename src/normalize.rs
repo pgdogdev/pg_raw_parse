@@ -1,39 +1,47 @@
-use crate::{Error, raw};
-use libc::free;
-use std::ffi::{CStr, CString};
-use std::ptr::NonNull;
+use crate::transform::{Transform, TransformClosure};
+use crate::{DeparseResult, Node, NodeMut, Owned, deparse, make, nodes, parse};
 
-pub fn normalize(query: &str) -> crate::Result<String> {
-    let input = CString::new(query)?;
-    // SAFETY: No documented invariants, so we assume it's safe as long as it
-    // gets a valid nul terminated string
-    let result = unsafe { raw::pg_query_normalize(input.as_ptr()) };
+pub fn normalize(query: &nodes::RawStmt) -> Owned<nodes::RawStmt> {
+    make::owned(|mem| {
+        let mut copy = mem.make_unique(query);
+        let mut param_count = 0;
+        TransformClosure::new(|mut node| match &mut *node {
+            NodeMut::A_Const(_) => {
+                param_count += 1;
+                node.replace(mem.make_param_ref(param_count).uncast());
+                None
+            }
+            NodeMut::ParamRef(p) => {
+                param_count += 1;
+                p.set_number(param_count);
+                None
+            }
+            _ => Some(node),
+        })
+        .transform_raw_stmt(copy.as_mut());
+        copy
+    })
+}
 
-    match NonNull::new(result.error) {
-        Some(err) => {
-            // SAFETY: This is either a malloc'd pointer or NULL
-            unsafe { free(result.normalized_query.cast()) };
-            Err(Error::from_pg_query_error(err))
-        }
-        None => {
-            // SAFETY: This is always valid if no error was returned
-            let c_str = unsafe { CStr::from_ptr(result.normalized_query) };
-            let string = c_str.to_string_lossy().into_owned();
-            // SAFETY: We aren't holding onto any pointers from this now
-            unsafe { raw::pg_query_free_normalize_result(result) };
-            Ok(string)
-        }
+pub fn normalize_str(query: &str) -> crate::Result<DeparseResult> {
+    let tree = parse(query)?;
+    if let Some(stmt) = tree.first() {
+        deparse(&*normalize(stmt))
+    } else {
+        deparse(Node::None)
     }
 }
 
 #[test]
 fn test_normalize_does_the_thing() {
-    let normalized = normalize("SELECT * FROM users WHERE id = 1").unwrap();
-    assert_eq!(normalized, "SELECT * FROM users WHERE id = $1");
+    let normalized = normalize_str("SELECT * FROM users WHERE id = 1").unwrap();
+    assert_eq!(normalized.as_str(), "SELECT * FROM users WHERE id = $1");
 
-    let normalized = normalize("SELECT * FROM users WHERE id = 1 AND name = $1").unwrap();
+    let normalized = normalize_str("SELECT * FROM users WHERE id = 1 AND name = $1").unwrap();
     assert_eq!(
-        normalized,
-        "SELECT * FROM users WHERE id = $2 AND name = $1"
+        normalized.as_str(),
+        "SELECT * FROM users WHERE id = $1 AND name = $2"
     );
+
+    assert!(normalize_str("").is_err());
 }

@@ -133,8 +133,6 @@ fn main() {
         .allowlist_item("list_concat")
         .allowlist_item("wrapped_copy_object")
         .allowlist_item("newNode")
-        .allowlist_item("pg_query_normalize")
-        .allowlist_item("pg_query_free_normalize_result")
         .allowlist_var("PG_VERSION")
         .allowlist_var("PG_VERSION_NUM")
         .wrap_static_fns(true)
