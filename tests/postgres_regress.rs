@@ -1,4 +1,4 @@
-use pg_raw_parse::{deparse_stmts, parse, raw};
+use pg_raw_parse::{deparse, deparse_stmts, normalize::normalize, parse, raw};
 use std::ffi::{CStr, CString};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -281,6 +281,22 @@ fn postgres_regression_sql_parses_and_round_trips() {
                     "failed to reparse {} at byte {location}: {error}\noriginal: {query}\ndeparsed: {deparsed}",
                     path.display()
                 );
+            }
+
+            for stmt in tree.iter() {
+                let normalized = normalize(stmt);
+                let normalized = deparse(&*normalized).unwrap_or_else(|error| {
+                    panic!(
+                        "failed to deparse normalized {} at byte {location}: {error}\n{query}",
+                        path.display()
+                    )
+                });
+                parse(normalized.as_str()).unwrap_or_else(|error| {
+                    panic!(
+                        "failed to reparse normalized {} at byte {location}: {error}\noriginal: {query}\nnormalized: {}",
+                        path.display(), normalized.as_str()
+                    )
+                });
             }
         }
     }
