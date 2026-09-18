@@ -28,7 +28,7 @@ let normalized = normalize(&ast).unwrap(); // Doesn't require parsing the query 
 
 `libpg_query` uses Protobuf to provide access to its API to non-C languages, e.g., Rust, Ruby, Python, etc. This makes it very slow at runtime because it requires (de)serialization and additional memory allocations to pass the AST data structure across the FFI boundary.
 
-`pg_raw_parse` uses macros to generate Rust structs directly on top of the PostgreSQL arena allocator. This ensures that calls to `pg_raw_parse::parse` require much fewer memory allocations, performed by the PostgreSQL memory context.
+`pg_raw_parse` uses macros to generate Rust structs directly on top of the PostgreSQL arena allocator. This ensures that calls to its API require much fewer memory allocations, performed by the PostgreSQL memory context.
 
 Since most code is generated, upgrading major PostgreSQL versions only requires bumping up the `postgres` and `libpg_query` submodules. This allows us to stay current with upstream changes without much effort.
 
