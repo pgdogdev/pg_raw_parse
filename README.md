@@ -39,6 +39,8 @@ You can read more about the crate's internals [below](#design).
 
 You can reproduce our benchmarks [here](benchmarks). The following numbers are from my Mac M1 Max.
 
+![Benchmark](benchmark_parse.svg)
+
 ### `parse`
 
 | Query size (nodes) | `pg_query.rs` | `pg_raw_parse` | Speedup |
