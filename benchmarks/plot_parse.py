@@ -54,8 +54,8 @@ def create_figure():
 def draw_chart(times, operation, query_labels, raw_labels):
     x = list(range(len(SIZES)))
     for labels, color, marker, linestyle, name, offset in (
-        (raw_labels, "#355ba9", "o", "-", "pg_raw_parse", -30),
-        (query_labels, "#b96a47", "s", "--", "pg_query.rs", 20),
+        (raw_labels, "#355ba9", "o", "-", "pg_raw_parse", -36),
+        (query_labels, "#b96a47", "s", "--", "pg_query.rs", 26),
     ):
         values = []
         for label in labels:
@@ -65,11 +65,11 @@ def draw_chart(times, operation, query_labels, raw_labels):
                    linestyle=linestyle, linewidth=2.4, markersize=6)
         for position, value, label in zip(x, values, labels):
             times.annotate(label, (position, value), xytext=(0, offset),
-                           textcoords="offset points", ha="center", fontsize=13.5,
+                           textcoords="offset points", ha="center", fontsize=16.5,
                            color=color)
 
     times.set_yscale("log")
-    times.set_ylim(0.15, 100_000)
+    times.set_ylim(0.08, 200_000)
     times.set_xlim(-0.45, 5.45)
     times.yaxis.set_major_locator(FixedLocator([1, 10, 100, 1_000, 10_000, 100_000]))
     times.yaxis.set_major_formatter(FuncFormatter(
@@ -80,7 +80,7 @@ def draw_chart(times, operation, query_labels, raw_labels):
         times.set_ylabel("Time per execution", labelpad=14)
     times.grid(axis="y", color="#e2e8e3", linewidth=0.8)
     times.set_axisbelow(True)
-    times.tick_params(axis="both", length=0, pad=12)
+    times.tick_params(axis="both", length=0, pad=16, labelsize=16.5)
     if operation == "deparse":
         times.tick_params(axis="y", labelleft=False)
     if operation != "parse":
