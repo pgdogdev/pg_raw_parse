@@ -287,7 +287,7 @@ Licensed under either of these:
 - MIT license ([LICENSE-MIT](LICENSE-MIT) or
   https://opensource.org/licenses/MIT)
 
-### Prior art
+## Prior art
 
 - [libpg_query](https://github.com/pganalyze/libpg_query)
 - [pg_query.rs](https://github.com/pganalyze/pg_query.rs)
