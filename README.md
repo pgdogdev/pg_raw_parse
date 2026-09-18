@@ -1,7 +1,6 @@
 # pg_raw_parse
 
-`pg_raw_parse` is a Rust library that provides direct access to the PostgreSQL parser. It's 20-60x faster (not a typo)
-than [`pg_query.rs`](https://docs.rs/pg_query/latest/pg_query/) and uses 90% less memory (see [benchmarks](#benchmarks)).
+`pg_raw_parse` is a Rust library that provides direct access to the PostgreSQL parser. It's 20-60x faster than [`pg_query.rs`](https://docs.rs/pg_query/latest/pg_query/) and uses 90% less memory (see [benchmarks](#benchmarks)).
 
 The library is primarily used in [PgDog](https://github.com/pgdogdev/pgdog), but has no dependencies
 except [`libpg_query`](https://github.com/pganalyze/libpg_query), so it can be used in any Rust application to quickly parse and manipulate PgSQL.
@@ -292,5 +291,5 @@ Licensed under either of these:
 - [libpg_query](https://github.com/pganalyze/libpg_query)
 - [pg_query.rs](https://github.com/pganalyze/pg_query.rs)
 
-[libpg\_query]: https://github.com/pganalyze/libpg_query
-[pg\_query.rs]: https://github.com/pganalyze/pg_query.rs
+[libpg_query]: https://github.com/pganalyze/libpg_query
+[pg_query.rs]: https://github.com/pganalyze/pg_query.rs
