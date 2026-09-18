@@ -28,7 +28,7 @@ BENCHMARKS = (
 def create_figure():
     plt.rcParams.update({
         "font.family": "DejaVu Sans",
-        "font.size": 11,
+        "font.size": 16.5,
         "text.color": "#24352f",
         "axes.labelcolor": "#43554d",
         "xtick.color": "#43554d",
@@ -41,7 +41,7 @@ def create_figure():
         "svg.hashsalt": "pg-raw-parse-benchmark",
     })
     fig, axes = plt.subplots(1, 2, figsize=(20, 6))
-    fig.subplots_adjust(left=0.065, right=0.98, top=0.90, bottom=0.18, wspace=0.24)
+    fig.subplots_adjust(left=0.09, right=0.98, top=0.90, bottom=0.20, wspace=0.28)
     for times, (operation, query_labels, raw_labels) in zip(axes, BENCHMARKS):
         draw_chart(times, operation, query_labels, raw_labels)
     return fig
@@ -50,8 +50,8 @@ def create_figure():
 def draw_chart(times, operation, query_labels, raw_labels):
     x = list(range(len(SIZES)))
     for labels, color, marker, linestyle, name, offset in (
-        (raw_labels, "#355ba9", "o", "-", "pg_raw_parse", -20),
-        (query_labels, "#b96a47", "s", "--", "pg_query.rs", 10),
+        (raw_labels, "#355ba9", "o", "-", "pg_raw_parse", -30),
+        (query_labels, "#b96a47", "s", "--", "pg_query.rs", 20),
     ):
         values = []
         for label in labels:
@@ -61,11 +61,11 @@ def draw_chart(times, operation, query_labels, raw_labels):
                    linestyle=linestyle, linewidth=2.4, markersize=6)
         for position, value, label in zip(x, values, labels):
             times.annotate(label, (position, value), xytext=(0, offset),
-                           textcoords="offset points", ha="center", fontsize=9,
+                           textcoords="offset points", ha="center", fontsize=13.5,
                            color=color)
 
     times.set_yscale("log")
-    times.set_ylim(0.4, 100_000)
+    times.set_ylim(0.15, 100_000)
     times.set_xlim(-0.45, 5.45)
     times.yaxis.set_major_locator(FixedLocator([1, 10, 100, 1_000, 10_000, 100_000]))
     times.yaxis.set_major_formatter(FuncFormatter(
@@ -75,11 +75,11 @@ def draw_chart(times, operation, query_labels, raw_labels):
     times.set_ylabel(f"Time per {operation}", labelpad=14)
     times.grid(axis="y", color="#e2e8e3", linewidth=0.8)
     times.set_axisbelow(True)
-    times.tick_params(axis="both", length=0, pad=8)
+    times.tick_params(axis="both", length=0, pad=12)
     times.legend(loc="lower center", bbox_to_anchor=(0.5, 1.02), ncol=2,
                  frameon=False, borderaxespad=0)
     times.text(1, 1.05, "Log scale", transform=times.transAxes,
-               ha="right", fontsize=10, color="#63746b")
+               ha="right", fontsize=15, color="#63746b")
     times.set_xticks(x, [f"{size:,}" for size in SIZES])
     times.set_xlabel("Query length (nodes)", labelpad=12)
 
