@@ -91,6 +91,8 @@ let normalized = pg_raw_parse::normalize("SELECT 1").unwrap(); // SELECT $1
 In addition to parsing queries, we provide mechanisms to [traverse an AST], [construct
 new ASTs], and [transform ASTs].
 
+### Examples
+
 Traverse a query to find its parameters:
 
 ```rust
