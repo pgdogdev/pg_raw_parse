@@ -41,9 +41,13 @@ def create_figure():
         "svg.hashsalt": "pg-raw-parse-benchmark",
     })
     fig, axes = plt.subplots(1, 2, figsize=(20, 6))
-    fig.subplots_adjust(left=0.09, right=0.98, top=0.90, bottom=0.20, wspace=0.28)
+    fig.subplots_adjust(left=0.09, right=0.98, top=0.85, bottom=0.20, wspace=0.08)
     for times, (operation, query_labels, raw_labels) in zip(axes, BENCHMARKS):
         draw_chart(times, operation, query_labels, raw_labels)
+    handles, labels = axes[0].get_legend_handles_labels()
+    center = (axes[0].get_position().x0 + axes[-1].get_position().x1) / 2
+    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(center, 0.92),
+               ncol=2, frameon=False, borderaxespad=0)
     return fig
 
 
@@ -72,16 +76,18 @@ def draw_chart(times, operation, query_labels, raw_labels):
         lambda value, _: f"{value / 1_000:g} ms" if value >= 1_000 else f"{value:g} µs"
     ))
     times.minorticks_off()
-    times.set_ylabel(f"Time per {operation}", labelpad=14)
+    if operation != "deparse":
+        times.set_ylabel("Time per execution", labelpad=14)
     times.grid(axis="y", color="#e2e8e3", linewidth=0.8)
     times.set_axisbelow(True)
     times.tick_params(axis="both", length=0, pad=12)
-    times.legend(loc="lower center", bbox_to_anchor=(0.5, 1.02), ncol=2,
-                 frameon=False, borderaxespad=0)
-    times.text(1, 1.05, "Log scale", transform=times.transAxes,
-               ha="right", fontsize=15, color="#63746b")
+    if operation == "deparse":
+        times.tick_params(axis="y", labelleft=False)
+    if operation != "parse":
+        times.text(1, 1.10, "Log scale", transform=times.transAxes,
+                   ha="right", fontsize=15, color="#63746b")
     times.set_xticks(x, [f"{size:,}" for size in SIZES])
-    times.set_xlabel("Query length (nodes)", labelpad=12)
+    times.set_xlabel(f"{operation.capitalize()} query length", labelpad=24)
 
 
 if __name__ == "__main__":
