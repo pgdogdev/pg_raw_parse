@@ -220,7 +220,7 @@ the exception of extremely generic code such as list manipulation. We first run
 these header files through [bindgen], and then operate on the resulting code as
 if it were a procedural macro.
 
-Although this code lives in [build.rs](blob/main/build.rs), its patterns should be familiar to developers
+Although this code lives in [build.rs](build.rs), its patterns should be familiar to developers
 familiar with writing procedural macros.
 
 [bindgen]: https://github.com/rust-lang/rust-bindgen
@@ -243,7 +243,7 @@ many of those fields have documentation stating that they are a list of a single
 type of node. We look for those comments, and change the type of the field to a
 typed list if we find one.
 
-[AST traversal][walk an AST] is done using PostgreSQL's internal
+[AST traversal](#working-with-asts) is done using PostgreSQL's internal
 `raw_expression_tree_walker` function, with a thin wrapper to handle passing a
 Rust closure to C and transform PostgreSQL's exceptions into Rust panics. [AST
 transformation][transform ASTs] is done with generated code.
@@ -291,3 +291,6 @@ Licensed under either of these:
 
 - [libpg_query](https://github.com/pganalyze/libpg_query)
 - [pg_query.rs](https://github.com/pganalyze/pg_query.rs)
+
+[libpg\_query]: https://github.com/pganalyze/libpg_query
+[pg\_query.rs]: https://github.com/pganalyze/pg_query.rs
