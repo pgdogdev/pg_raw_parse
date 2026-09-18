@@ -1,4 +1,68 @@
-# PG Raw Parse
+# pg_raw_parse
+
+`pg_raw_parse` is a Rust library that provides direct access to the PostgreSQL parser. It's 20-60x faster (not a typo)
+than [`pg_query.rs`](https://docs.rs/pg_query/latest/pg_query/) and uses 90% less memory (see [benchmarks](#benchmarks)).
+
+The library is primarily used in [PgDog](https://github.com/pgdogdev/pgdog), but has no dependencies
+except [`lib_pgquery`](https://github.com/pganalyze/libpg_query), so it can be used in any Rust application to quickly parse and manipulate PgSQL.
+
+## Quick start
+
+We don't regularly publish the crate to crates.io, so you should install it via git dependency instead:
+
+```toml
+# Cargo.toml
+pg_raw_parse = { git = "https://github.com/pgdogdev/pg_raw_parse" }
+```
+
+This crate has a very similar API to `pg_query.rs`, e.g., to parse a query and get its AST, you can:
+
+```rust
+use pg_raw_parse::{parse, deparse, normalize};
+
+let ast = parse("SELECT * FROM users WHERE id = $1").unwrap();
+let query = deparse(&ast).unwrap();
+let normalized = normalize(&ast).unwrap(); // Doesn't require parsing the query again!
+```
+
+## Why another crate
+
+`libpg_query` uses Protobuf to provide access to its API to non-C languages, e.g., Rust, Ruby, Python, etc. This makes it very slow at runtime because it requires (de)serialization and additional memory allocations to pass the AST data structure across the FFI boundary.
+
+`pg_raw_parse` uses macros to generate Rust structs directly on top of the PostgreSQL arena allocator. This ensures that calls to `pg_raw_parse::parse` require much fewer memory allocations, performed by the PostgreSQL memory context.
+
+Since most code is generated, upgrading major PostgreSQL versions only requires bumping up the `postgres` and `libpg_query` submodules. This allows us to stay current with upstream changes without much effort.
+
+You can read more about the crate's internals [below](#design).
+
+## Benchmarks
+
+You can reproduce our benchmarks [here](benchmarks). The following numbers are from my Mac M1 Max.
+
+### `parse`
+
+| Query length (nodes) | `pg_query.rs` | `pg_raw_parse` |
+| -------------------- | ------------- | -------------- |
+| 10                   | _             | _              |
+| 1,000                | _             | _              |
+| 10,000               | _             | _              |
+
+### `deparse`
+
+| Query length (nodes) | `pg_query.rs` | `pg_raw_parse` |
+| -------------------- | ------------- | -------------- |
+| 10                   | _             | _              |
+| 1,000                | _             | _              |
+| 10,000               | _             | _              |
+
+### `normalize`
+
+| Query length (nodes) | `pg_query.rs` | `pg_raw_parse` |
+| -------------------- | ------------- | -------------- |
+| 10                   | _             | _              |
+| 1,000                | _             | _              |
+| 10,000               | _             | _              |
+
 ## Safe bindings to libpg_query
 
 PG Raw Parse provides a low level wrapper around the PostgreSQL backend parser.
@@ -21,32 +85,50 @@ copies of data.
 
 PostgreSQL does not publish any header files or libraries to expose its backend
 functions. We use [libpg\_query], which embeds those files in a form that is
-easy to compile without going through cmake, as well as makes a few changes
+easy to compile without going through CMake, as well as makes a few changes
 to enable multithreaded usage. We also use this library for its `deparse`
 implementation, turning an AST back into a string.
 
+### Structs
+
 When possible, the structures in this library are cast directly from a pointer
-to the C structure. The main exception to this is `Node *`, which is
+to the C structure.
+
+The main exception to this is `Node *`, which is
 semantically an unsized enum. There is no way to represent an enum with
-different sizes for each variant in Rust, so we need our own wrapper enum. The
-tag is identical to the tag of the C enum, so LLVM *should* be able to optimize
+different sizes for each variant in Rust, so we need our own wrapper enum.
+
+The tag is identical to the tag of the C enum, so LLVM _should_ be able to optimize
 this away in many cases but it is not guaranteed.
+
+### Memory architecture
 
 Everything in pg\_raw\_parse makes use of PostgreSQLs allocator, both for
 manipulating the structures returned by `parse`, and for [constructors provided
-by this library][construct new ASTs]. It is assumed that ASTs are retained at
-the scope of a single query. Each call to `parse` will return an AST with its
-own arena. Individual nodes do not implement `Drop`, and are not freed until the
+by this library][construct new ASTs].
+
+It is assumed that ASTs are retained at the scope of a single query. Each call to `parse` will return an AST with its
+own arena.
+
+Individual nodes do not implement `Drop`, and are not freed until the
 entire arena is dropped. This can result in slightly higher memory usage when
-mutating ASTs, as nodes that are replaced will still occupy memory. But the
+mutating ASTs, as nodes that are replaced will still occupy memory.
+
+The
 result is much less overhead from `palloc`/`pfree` in the most common usage
 patterns.
 
+### Memory safety
+
 To ensure that fields of an AST node are always allocated on the same arena as
-its parent, we make use of [lifetime branding]. [`MemoryToken`] is a type that
+its parent, we make use of [lifetime branding].
+
+[`MemoryToken`] is a type that
 is used for constructing node allocated on a specific arena. Constructors
 require all fields to be [`Unique`], which represents a node allocated on that
-same arena and is not assigned anywhere else. Once all construction/mutation is
+same arena and is not assigned anywhere else.
+
+Once all construction/mutation is
 complete, the result is wrapped in [`Owned`], which is responsible for freeing
 the arena in its destructor.
 
@@ -57,8 +139,9 @@ the arena in its destructor.
 
 Because individual nodes are never freed on their own, once an arena is inside
 of an `Owned`, it is frozen. It is only possible to get shared references to
-fields within it, and its arena can never be used for allocations again. This
-decision was made to make it impossible to cause a memory leak by holding a long
+fields within it, and its arena can never be used for allocations again.
+
+This decision was made to make it impossible to cause a memory leak by holding a long
 lived reference to an AST, and then mutating it repeatedly. Instead, to mutate
 an `Owned` node, it must first be copied onto a new memory arena using
 [`make_unique`].
@@ -68,19 +151,25 @@ an `Owned` node, it must first be copied onto a new memory arena using
 The majority of the code in this library is generated from C header files, with
 the exception of extremely generic code such as list manipulation. We first run
 these header files through [bindgen], and then operate on the resulting code as
-if it were a procedural macro. Although this code lives in
-[build.rs](blob/main/build.rs), its patterns should be familiar to developers
+if it were a procedural macro.
+
+Although this code lives in [build.rs](blob/main/build.rs), its patterns should be familiar to developers
 familiar with writing procedural macros.
 
 [bindgen]: https://github.com/rust-lang/rust-bindgen
 
+### Memory layout
+
 We create our own layout compatible structs rather than directly exposing the
 structs generated by bindgen. This is to give us control over the visibility of
-fields, as we don't want raw pointer fields to be public. We generate accessor
-methods that convert to our custom type, and check the tag so an invalid node
+fields, as we don't want raw pointer fields to be public.
+
+We generate accessor methods that convert to our custom type, and check the tag so an invalid node
 assignment results in a panic rather than undefined behavior. In particular,
 this is required for `Node*`, which cannot be represented in Rust as a simple
 pointer cast for the reasons mentioned above.
+
+### Compatibility
 
 C has no concept of generics, so all lists are untyped lists of nodes. However,
 many of those fields have documentation stating that they are a list of a single
@@ -120,25 +209,25 @@ better, with the gap increasing as the size of the AST increases.
 
 #### Parse time
 
-![Speed benchmark graph](raw/main/benchmark_time.png)
+![Speed benchmark graph](benchmark_time.png)
 
 #### Parse time (log scale)
 
-![Speed benchmark graph (log scale)](raw/main/benchmark_time_log.png)
+![Speed benchmark graph (log scale)](benchmark_time_log.png)
 
 #### Memory Usage
 
-![Memory benchmark graph](raw/main/benchmark_mem.png)
+![Memory benchmark graph](benchmark_mem.png)
 
 #### Memory Usage (log scale)
 
-![Memory benchmark graph (log scale)](raw/main/benchmark_mem_log.png)
+![Memory benchmark graph (log scale)](benchmark_mem_log.png)
 
 ## Contributing
 
 This library's API surface is primarily driven by the needs of
 [PgDog](https://github.com/pgdogdev/pgdog). It is not intended to be a complete,
-one-size-fits-all solution to PostgreSQL ASTs.  Contributions are welcome, but
+one-size-fits-all solution to PostgreSQL ASTs. Contributions are welcome, but
 pull requests adding large and complex features are unlikely to be accepted
 unless they align with PgDog's needs. For a more general purpose library,
 consider [pg\_query.rs].
@@ -147,13 +236,13 @@ consider [pg\_query.rs].
 
 Licensed under either of these:
 
- * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or
-   https://www.apache.org/licenses/LICENSE-2.0)
- * MIT license ([LICENSE-MIT](LICENSE-MIT) or
-   https://opensource.org/licenses/MIT)
+- Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or
+  https://www.apache.org/licenses/LICENSE-2.0)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or
+  https://opensource.org/licenses/MIT)
 
-[libpg\_query]: https://github.com/pganalyze/libpg_query
-[pg\_query.rs]: https://github.com/pganalyze/pg_query.rs
+[libpg_query]: https://github.com/pganalyze/libpg_query
+[pg_query.rs]: https://github.com/pganalyze/pg_query.rs
 
 ## LLM Policy
 
