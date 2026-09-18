@@ -4,7 +4,7 @@
 than [`pg_query.rs`](https://docs.rs/pg_query/latest/pg_query/) and uses 90% less memory (see [benchmarks](#benchmarks)).
 
 The library is primarily used in [PgDog](https://github.com/pgdogdev/pgdog), but has no dependencies
-except [`lib_pgquery`](https://github.com/pganalyze/libpg_query), so it can be used in any Rust application to quickly parse and manipulate PgSQL.
+except [`libpg_query`](https://github.com/pganalyze/libpg_query), so it can be used in any Rust application to quickly parse and manipulate PgSQL.
 
 ## Quick start
 
@@ -41,7 +41,11 @@ You can reproduce our benchmarks [here](benchmarks). The following numbers are f
 
 ![Benchmark](benchmark_parse.svg)
 
-### `parse`
+### Parse
+
+```rust
+let ast = pg_raw_parse::parse("SELECT 1").unwrap();
+```
 
 | Query size (nodes) | `pg_query.rs` | `pg_raw_parse` | Speedup |
 | -----------------: | ------------: | -------------: | ------: |
@@ -52,7 +56,11 @@ You can reproduce our benchmarks [here](benchmarks). The following numbers are f
 |              5,000 |     9.1901 ms |      275.39 µs |  33.37× |
 |             10,000 |     32.179 ms |      541.03 µs |  59.48× |
 
-### `deparse`
+### Deparse
+
+```rust
+let query = pg_raw_parse::deparse(&st).unwrap();
+```
 
 | Query length (nodes) | `pg_query.rs` | `pg_raw_parse` | Speedup |
 | -------------------: | ------------: | -------------: | ------: |
@@ -63,7 +71,11 @@ You can reproduce our benchmarks [here](benchmarks). The following numbers are f
 |                5,000 |     3.0952 ms |      178.90 µs |  17.30× |
 |               10,000 |     6.3492 ms |      355.46 µs |  17.86× |
 
-### `normalize`
+### Normalize
+
+```rust
+let normalized = pg_raw_parse::normalize("SELECT 1").unwrap(); // SELECT $1
+```
 
 | Query length (nodes) | `pg_query.rs` | `pg_raw_parse` | Speedup |
 | -------------------: | ------------: | -------------: | ------: |
@@ -78,6 +90,53 @@ You can reproduce our benchmarks [here](benchmarks). The following numbers are f
 
 In addition to parsing queries, we provide mechanisms to [traverse an AST], [construct
 new ASTs], and [transform ASTs].
+
+Traverse a query to find its parameters:
+
+```rust
+use pg_raw_parse::{Node, parse, walk};
+
+let ast = parse("SELECT $1, $2").unwrap();
+walk::walk(ast.stmts().next().unwrap(), |node| {
+    if let Node::ParamRef(param) = node {
+        println!("${}", param.number);
+    }
+});
+```
+
+Construct a `SELECT $1` AST without parsing SQL:
+
+```rust
+use pg_raw_parse::{deparse, make, nodes};
+
+let ast = make::owned(|mem| {
+    let mut select = mem.make_node::<nodes::SelectStmt>();
+    let target = mem.make_res_target(None, mem.empty(), mem.make_param_ref(1).uncast());
+    select.as_mut().set_target_list(mem.make_list(&[target]));
+    select
+});
+assert_eq!(deparse(&*ast).unwrap().as_str(), "SELECT $1");
+```
+
+Transform a copy of an AST, replacing a literal with a parameter:
+
+```rust
+use pg_raw_parse::{NodeMut, deparse, make, parse, transform};
+
+let ast = parse("SELECT 42").unwrap();
+let changed = make::owned(|mem| {
+    let mut copy = mem.make_unique(ast.stmts().next().unwrap());
+    transform::transform(&mut copy, |node| match &*node {
+        NodeMut::A_Const(_) => {
+            node.replace(mem.make_param_ref(1).uncast());
+            None
+        }
+        _ => Some(node),
+    });
+    mem.make_raw_stmt(copy)
+});
+assert_eq!(deparse(&*changed).unwrap().as_str(), "SELECT $1");
+```
 
 [traverse an AST]: https://docs.rs/pg_raw_parse/latest/pg_raw_parse/walk/index.html
 [construct new ASTs]: https://docs.rs/pg_raw_parse/latest/pg_raw_parse/make/index.html
@@ -110,7 +169,7 @@ this away in many cases but it is not guaranteed.
 
 ### Memory architecture
 
-Everything in pg\_raw\_parse makes use of PostgreSQLs allocator, both for
+Everything in pg\_raw\_parse makes use of PostgreSQL's allocator, both for
 manipulating the structures returned by `parse`, and for [constructors provided
 by this library][construct new ASTs].
 
@@ -228,5 +287,5 @@ Licensed under either of these:
 
 ### Prior art
 
-- [libpg_query]: https://github.com/pganalyze/libpg_query
-- [pg_query.rs]: https://github.com/pganalyze/pg_query.rs
+- [libpg_query](https://github.com/pganalyze/libpg_query)
+- [pg_query.rs](https://github.com/pganalyze/pg_query.rs)
