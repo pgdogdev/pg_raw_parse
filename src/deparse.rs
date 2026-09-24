@@ -87,4 +87,11 @@ fn test_deparse() {
     run_test("DELETE FROM users WHERE id = 1");
     run_test("SET my_config TO 1");
     run_test("TRUNCATE users");
+    run_test("SELECT ts AT TIME ZONE tz FROM s");
+    run_test("SELECT (ts -> 'a') AT TIME ZONE tz FROM s");
+    run_test("SELECT ts AT TIME ZONE (a -> 'b') FROM s");
+    run_test("SELECT ts AT TIME ZONE (tz || 'x') FROM s");
+    run_test(
+        "SELECT ((summary ->> 'ts')::timestamptz AT TIME ZONE ((summary -> 'stop') ->> 'tz'))::date AS d FROM s",
+    );
 }
