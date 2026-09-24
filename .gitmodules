@@ -1,3 +1,5 @@
 [submodule "libpg_query"]
 	path = libpg_query
-	url = https://github.com/pganalyze/libpg_query
+	# TODO: rollback to original repo after merge https://github.com/pganalyze/libpg_query/pull/368
+	url = https://github.com/meskill/libpg_query
+	branch = fix-at-time-paranses
