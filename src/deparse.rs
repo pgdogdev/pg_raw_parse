@@ -92,6 +92,37 @@ fn test_deparse() {
     run_test("SELECT ts AT TIME ZONE (a -> 'b') FROM s");
     run_test("SELECT ts AT TIME ZONE (tz || 'x') FROM s");
     run_test(
+        "SELECT ((summary ->> 'ts')::timestamptz AT TIME ZONE (summary -> 'stop' ->> 'tz'))::date AS d FROM s",
+    );
+}
+
+#[test]
+fn deparse_ast() {
+    fn run_test(query: &str) {
+        let original = crate::parse(query).unwrap();
+        let stmt = original.first().unwrap();
+        let deparsed = deparse(stmt).unwrap();
+        let reparsed = crate::parse(deparsed.as_str()).unwrap();
+        let reparsed_stmt = reparsed.first().unwrap();
+
+        assert!(
+            unsafe {
+                crate::raw::equal(
+                    std::ptr::from_ref(stmt).cast(),
+                    std::ptr::from_ref(reparsed_stmt).cast(),
+                )
+            },
+            "{query}\n{}",
+            deparsed.as_str()
+        );
+    }
+
+    run_test("SELECT (a + b) * c FROM t");
+    run_test("SELECT a - (b - c) FROM t");
+    run_test("SELECT (a OR b) AND c FROM t");
+    run_test("SELECT (data -> 'stop') ->> 'tz' FROM t");
+    run_test("SELECT (ts AT TIME ZONE (tz || 'x'))::date FROM t");
+    run_test(
         "SELECT ((summary ->> 'ts')::timestamptz AT TIME ZONE ((summary -> 'stop') ->> 'tz'))::date AS d FROM s",
     );
 }
