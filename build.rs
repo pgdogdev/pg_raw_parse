@@ -103,6 +103,7 @@ fn main() {
     let mut bindgen = bindgen
         .allowlist_item("Node")
         .allowlist_item("MemoryContext")
+        .allowlist_item("equal")
         .allowlist_item("pg_query_init")
         .allowlist_item("AllocSetContextCreateInternal")
         .allowlist_item("ALLOCSET_DEFAULT_MINSIZE")
@@ -163,13 +164,14 @@ fn main() {
         )
         .file(out_dir.join("wrap_static_fns.c"))
         .file(build_dir.join("copy_pg_error.c"))
-        // Unfortunately, the linker expects protobuf functions to be present
-        // even if we're never using them
-        .file(c_dir.join("vendor/protobuf-c/protobuf-c.c"))
+        .file(c_dir.join("vendor/upb/upb.c"))
+        .file(c_dir.join("vendor/upb/third_party/utf8_range/utf8_range.c"))
         .file(c_dir.join("vendor/xxhash/xxhash.c"))
-        .file(c_dir.join("protobuf/pg_query.pb-c.c"))
+        .file(c_dir.join("protobuf/pg_query.upb_minitable.c"))
         .include(&*c_dir)
         .include(c_dir.join("vendor"))
+        .include(c_dir.join("vendor/upb"))
+        .include(c_dir.join("vendor/upb/third_party/utf8_range"))
         .include(c_dir.join("src/postgres/include"))
         .include(c_dir.join("src/include"))
         .include(build_dir)
