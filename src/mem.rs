@@ -44,6 +44,11 @@ impl MemoryContext {
         unsafe { raw::MemoryContextSwitchTo(prev) };
         result
     }
+
+    pub(crate) fn memory_allocated(&self) -> usize {
+        // SAFETY: `self.0` is always a valid memory context
+        unsafe { &*self.0 }.mem_allocated
+    }
 }
 
 // SAFETY: This will never have any parents, so we don't need to worry about
