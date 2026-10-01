@@ -6,7 +6,7 @@ use std::ops::Deref;
 /// An owned version of a node
 pub struct Owned<T> {
     /// The memory context the node is allocated onto
-    _mem: mem::MemoryContext,
+    mem: mem::MemoryContext,
     /// A pointer to a node allocated onto [_mem]
     ptr: *mut raw::Node,
     _marker: PhantomData<T>,
@@ -21,10 +21,14 @@ unsafe impl<T> Sync for Owned<T> {}
 impl<T> Owned<T> {
     pub(crate) fn new(mem: mem::MemoryContext, ptr: *mut raw::Node) -> Self {
         Self {
-            _mem: mem,
+            mem,
             ptr,
             _marker: PhantomData,
         }
+    }
+
+    pub fn memory_allocated(&self) -> usize {
+        self.mem.memory_allocated()
     }
 }
 
