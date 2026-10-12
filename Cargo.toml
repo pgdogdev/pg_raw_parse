@@ -11,11 +11,9 @@ repository = "https://github.com/pgdogdev/pg_raw_parse"
 # Enables compile-time checks to verify that our enums are actually layout
 # identical to the C structures we're casting from. Requires a nightly compiler
 field_offset_assertions = []
-postgres-regress = ["dep:include_dir"]
 
 [dependencies]
 generativity = "1.2.1"
-include_dir = { version = "0.7", optional = true }
 libc = "0.2.186"
 thiserror = "2.0.18"
 
