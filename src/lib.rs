@@ -24,6 +24,10 @@ pub use crate::error::{Error, Result};
 pub use crate::node_enum::{Node, NodeMut};
 pub use crate::owned::Owned;
 
+#[cfg(feature = "postgres-regress")]
+pub static POSTGRES_REGRESS: include_dir::Dir<'static> =
+    include_dir::include_dir!("$CARGO_MANIFEST_DIR/libpg_query/test/sql/postgres_regress");
+
 /// PostgreSQL version number whose parser sources are used by this crate.
 pub const POSTGRES_VERSION_NUM: u32 = raw::PG_VERSION_NUM;
 
