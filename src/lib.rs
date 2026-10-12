@@ -27,6 +27,10 @@ pub use crate::owned::Owned;
 /// PostgreSQL version number whose parser sources are used by this crate.
 pub const POSTGRES_VERSION_NUM: u32 = raw::PG_VERSION_NUM;
 
+#[cfg(feature = "postgres-regress")]
+pub static POSTGRES_REGRESS: include_dir::Dir<'static> =
+    include_dir::include_dir!("$CARGO_MANIFEST_DIR/libpg_query/test/sql/postgres_regress");
+
 /// Returns the PostgreSQL version whose parser sources are used by this crate.
 pub fn postgres_version() -> &'static str {
     CStr::from_bytes_with_nul(raw::PG_VERSION)
